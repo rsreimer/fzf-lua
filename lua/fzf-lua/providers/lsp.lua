@@ -394,6 +394,19 @@ local function gen_lsp_contents(opts)
     if err then
       utils.err(string.format("Error executing '%s': %s", lsp_handler.method, err))
     else
+      -- Flatten the results from all clients
+      lsp_results = {
+        {
+          result = vim
+              .iter(lsp_results)
+              :map(function(result)
+                return result.result or {}
+              end)
+              :flatten()
+              :totable(),
+        },
+      }
+
       local results = {}
       local jump1
       local cb = function(text, x)
