@@ -45,7 +45,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim)
   -- optional for icon support
   dependencies = { "nvim-tree/nvim-web-devicons" },
   -- or if using mini.icons/mini.nvim
-  -- dependencies = { "echasnovski/mini.icons" },
+  -- dependencies = { "nvim-mini/mini.icons" },
   opts = {}
 }
 ```
@@ -59,7 +59,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim)
 - [`fzf`](https://github.com/junegunn/fzf) version > `0.36`
   or [`skim`](https://github.com/skim-rs/skim) binary installed
 - [nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons)
-  or [mini.icons](https://github.com/echasnovski/mini.icons)
+  or [mini.icons](https://github.com/nvim-mini/mini.icons)
   (optional)
 
 ### Optional dependencies
@@ -316,7 +316,7 @@ Fzf-Lua conveniently comes with a VS-Code like picker by default
 | ---------------------- | --------------------------------------------- |
 | `resume`               | resume last command/query                     |
 | `builtin`              | fzf-lua builtin commands                      |
-| `combine`              | combine different fzf-kua pickers             |
+| `combine`              | combine different fzf-lua pickers             |
 | `global`               | global picker for files,buffers and symbols   |
 | `profiles`             | fzf-lua configuration profiles                |
 | `helptags`             | help tags                                     |
@@ -546,8 +546,9 @@ keymap = {
       ["<F3>"]        = "toggle-preview-wrap",
       ["<F4>"]        = "toggle-preview",
       -- Rotate preview clockwise/counter-clockwise
-      ["<F5>"]        = "toggle-preview-ccw",
-      ["<F6>"]        = "toggle-preview-cw",
+      ["<F5>"]        = "toggle-preview-cw",
+      -- Preview toggle behavior default/extend
+      ["<F6>"]        = "toggle-preview-behavior",
       -- `ts-ctx` binds require `nvim-treesitter-context`
       ["<F7>"]        = "toggle-preview-ts-ctx",
       ["<F8>"]        = "preview-ts-ctx-dec",

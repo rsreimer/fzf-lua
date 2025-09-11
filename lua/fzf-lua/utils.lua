@@ -375,6 +375,9 @@ end
 -- deepcopy can fail with: "Cannot deepcopy object of type userdata" (#353)
 -- this can happen when copying items/on_choice params of vim.ui.select
 -- run in a pcall and fallback to our poor man's clone
+---@generic T: table
+---@param t T?
+---@return T?
 function M.deepcopy(t)
   local ok, res = pcall(vim.deepcopy, t)
   if ok then
@@ -384,6 +387,9 @@ function M.deepcopy(t)
   end
 end
 
+---@generic T: table
+---@param t T?
+---@return T?
 function M.tbl_deep_clone(t)
   if not t then return end
   local clone = {}
@@ -478,6 +484,17 @@ function M.tbl_get(T, ...)
     return nil
   end
   return M.map_get(T, keys)
+end
+
+---@generic T
+---@param list T[]
+---@return { [T]: boolean }
+function M.list_to_map(list)
+  local map = {}
+  for _, v in ipairs(list) do
+    map[v] = true
+  end
+  return map
 end
 
 -- Get map value from string key
@@ -1309,6 +1326,7 @@ end
 function M.neovim_bind_to_fzf(key)
   local conv_map = {
     ["a"] = "alt",
+    ["m"] = "alt",
     ["c"] = "ctrl",
     ["s"] = "shift",
   }
@@ -1433,11 +1451,17 @@ function M.create_user_command_callback(provider, arg, altmap)
   end
 end
 
--- setmetatable wrapper, also enable `__gc`
-function M.setmetatable__gc(t, mt)
-  local prox = newproxy(true)
-  getmetatable(prox).__gc = function() mt.__gc(t) end
-  t[prox] = true
+-- setmetatable wrapper support `__gc`
+---@generic T
+---@param t T
+---@param mt table
+---@return T
+function M.setmetatable(t, mt)
+  if mt.__gc then
+    local prox = newproxy(true)
+    getmetatable(prox).__gc = function() mt.__gc(t) end
+    t[prox] = true
+  end
   return setmetatable(t, mt)
 end
 

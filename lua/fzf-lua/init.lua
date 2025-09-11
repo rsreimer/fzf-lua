@@ -141,6 +141,36 @@ function M.setup_highlights(override)
     vim.api.nvim_set_hl(0, hl_name, hl_def)
   end
 
+  -- courtesy of fzf.vim
+  do
+    local termguicolors = vim.o.termguicolors
+    vim.api.nvim_set_hl(0, "fzf1",
+      {
+        default = true,
+        ctermfg = termguicolors and 1 or 161,
+        ctermbg = termguicolors and 8 or 238,
+        fg = "#E12672",
+        bg = "#565656"
+      })
+    vim.api.nvim_set_hl(0, "fzf2",
+      {
+        default = true,
+        ctermfg = termguicolors and 2 or 151,
+        ctermbg = termguicolors and 8 or 238,
+        fg = "#BCDDBD",
+        bg =
+        "#565656"
+      })
+    vim.api.nvim_set_hl(0, "fzf3",
+      {
+        default = true,
+        ctermfg = termguicolors and 7 or 252,
+        ctermbg = termguicolors and 8 or 238,
+        fg = "#D9D9D9",
+        bg = "#565656"
+      })
+  end
+
   -- Init the colormap singleton
   utils.COLORMAP()
 end
@@ -175,6 +205,13 @@ function M.setup(opts, do_not_reset_defaults)
       vim.deprecate(oldk, newk, "Jan 2026", "FzfLua")
     end
   end
+  -- backward compat, merge lsp.symbols into lsp.{document|workspace}_synbols
+  if opts.lsp and opts.lsp.symbols then
+    opts.lsp.document_symbols = vim.tbl_deep_extend("keep",
+      opts.lsp.document_symbols or {}, opts.lsp.symbols)
+    opts.lsp.workspace_symbols = vim.tbl_deep_extend("keep",
+      opts.lsp.workspace_symbols or {}, opts.lsp.symbols)
+  end
   -- set custom &nbsp if caller requested
   if opts.nbsp then utils.nbsp = opts.nbsp end
   -- store the setup options
@@ -191,7 +228,6 @@ M.redraw = function()
 end
 
 local lazyloaded_modules = {
-  resume = { "fzf-lua.core", "fzf_resume" },
   files = { "fzf-lua.providers.files", "files" },
   args = { "fzf-lua.providers.files", "args" },
   grep = { "fzf-lua.providers.grep", "grep" },
@@ -294,15 +330,16 @@ local lazyloaded_modules = {
   complete_bline = { "fzf-lua.complete", "bline" },
   zoxide = { "fzf-lua.providers.files", "zoxide" },
   -- API shortcuts
-  fzf_exec = { "fzf-lua.core", "fzf_exec" },
-  fzf_live = { "fzf-lua.core", "fzf_live" },
-  fzf_wrap = { "fzf-lua.core", "fzf_wrap" },
+  resume = { "fzf-lua.core", "fzf_resume", false },
+  fzf_wrap = { "fzf-lua.core", "fzf_wrap", false },
+  fzf_exec = { "fzf-lua.core", "fzf_exec", true },
+  fzf_live = { "fzf-lua.core", "fzf_live", true },
 }
 
 for k, v in pairs(lazyloaded_modules) do
-  local v1, v2 = v[1], v[2] -- avoid reference v (table) in a function
+  local v1, v2, v3 = v[1], v[2], v[3] -- avoid reference v (table) in a function
   M[k] = function(...)
-    utils.set_info({ cmd = k, mod = v1, fnc = v2 })
+    if v3 ~= false then utils.set_info({ cmd = k, mod = v1, fnc = v2 }) end
     return require(v1)[v2](...)
   end
 end

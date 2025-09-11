@@ -3,8 +3,18 @@ error("Cannot require a meta file")
 
 _G.FzfLua = require("fzf-lua")
 
+---@class fzf-lua.previewer.SwiperBase
+---@field new function
+---@field setup_opts function
+---@field zero_cmd function?
+---@field result_cmd function?
+---@field preview_cmd function?
+---@field highlight_matches function?
+---@field win fzf-lua.Win
+
 ---@class fzf-lua.previewer.Fzf
 ---@field new function
+---@field setup_opts function
 ---@field zero function?
 ---@field cmdline function?
 ---@field fzf_delimiter function?
@@ -13,11 +23,13 @@ _G.FzfLua = require("fzf-lua")
 
 ---@class fzf-lua.previewer.Builtin
 ---@field type "builtin"
+---@field new function
+---@field setup_opts function
 ---@field opts table
 ---@field win fzf-lua.Win
 ---@field delay integer
----@field title string?
----@field title_pos string?
+---@field title any
+---@field title_pos "center"|"left"|"right"
 ---@field title_fnamemodify fun(title: string, width: integer?): string
 ---@field render_markdown table?
 ---@field snacks_image table?
@@ -56,6 +68,7 @@ _G.FzfLua = require("fzf-lua")
 ---@field ctag string?
 ---@field uri string?
 ---@field range { start: { line: integer, col: integer } }?
+---@field debug string? debug information
 
 ---@class fzf-lua.buffer_or_file.Entry : fzf-lua.path.Entry, {}
 ---@field do_not_cache boolean?
@@ -67,6 +80,7 @@ _G.FzfLua = require("fzf-lua")
 ---@field no_syntax boolean?
 ---@field cached fzf-lua.buffer_or_file.Bcache?
 ---@field content string[]?
+---@field filetype string?
 
 ---@class fzf-lua.keymap.Entry
 ---@field vmap string?
@@ -80,14 +94,14 @@ _G.FzfLua = require("fzf-lua")
 ---@field invalid_pos boolean? position changed
 ---@field tick integer?
 
----@alias fzf-lua.config.Action fzf-lua.ActionSpec|function|function[]|false
+---@alias fzf-lua.config.Action fzf-lua.ActionSpec|fzf-lua.shell.data2|fzf-lua.shell.data2[]|false
 ---@alias fzf-lua.config.Actions { [string]: fzf-lua.config.Action }
 
 ---@class fzf-lua.ActionSpec
----@field [1] function?
----@field fn function?
+---@field [1] fzf-lua.shell.data2?
+---@field fn fzf-lua.shell.data2?
 ---@field exec_silent boolean?
----@field reload boolean|fun(opts: fzf-lua.Config):content?
+---@field reload boolean
 ---@field field_index string?
 ---@field desc string?
 ---@field prefix string?
@@ -131,8 +145,9 @@ _G.FzfLua = require("fzf-lua")
 ---...
 ---@field cwd string?
 ---@field multiprocess integer|boolean?
----@field fn_transform string?
----@field fn_preprocess string?
+---@field fn_transform boolean|string|function?
+---@field fn_preprocess boolean|string|function?
+---@field fn_postprocess boolean|string|function?
 ---@field file_icons boolean|integer?
 ---@field color_icons boolean?
 ---@field _type "file"?
@@ -150,6 +165,8 @@ _G.FzfLua = require("fzf-lua")
 ---@field resume boolean?
 ---@field no_resume boolean?
 ---@field profile string|table?
+---@field is_live boolean? is "live" picker
+---@field silent_fail boolean?
 ---set_headers
 ---@field _headers string[]?
 ---@field headers string[]?
@@ -167,6 +184,11 @@ _G.FzfLua = require("fzf-lua")
 ---@field _fmt table
 ---FzfWin:treesitter_attach
 ---@field _treesitter (fun(line:string):string,string?,string?,string?)|boolean?
+---stringify_mt
+---@field cmd? string
+---@field contents? fzf-lua.content
+---@field debug? boolean|'v'|'verbose'
+---@field rg_glob? boolean
 
 ---mostly ai generated currently...
 ---@class fzf-lua.config.Defaults
@@ -237,14 +259,21 @@ _G.FzfLua = require("fzf-lua")
 ---@field width number
 ---@field row number
 ---@field col number
----@field border string
+---@field border any
 ---@field zindex integer
+---@field relative string
+---@field hide boolean
+---@field split string|function|false
 ---@field backdrop number|boolean
 ---@field fullscreen boolean
----@field title_pos string
+---@field title any
+---@field title_pos "center"|"left"|"right"
 ---@field treesitter fzf-lua.config.TreesitterWinopts
 ---@field preview fzf-lua.config.PreviewWinopts
+---@field on_create fun(e: { winid: integer, bufnr: integer })
 ---@field on_close fun()
+---@field toggle_behavior string?
+---@field __winhls { main: [string, string][], prev: [string, string][] }
 
 ---@class fzf-lua.config.TreesitterWinopts
 ---@field enabled boolean
@@ -252,15 +281,15 @@ _G.FzfLua = require("fzf-lua")
 
 ---@class fzf-lua.config.PreviewWinopts
 ---@field default? string
----@field border? string
+---@field border? any
 ---@field wrap? boolean
 ---@field hidden? boolean
 ---@field vertical? string
 ---@field horizontal? string
 ---@field layout? string
 ---@field flip_columns? integer
----@field title? boolean
----@field title_pos? string
+---@field title? any
+---@field title_pos? "center"|"left"|"right"
 ---@field scrollbar? string
 ---@field scrolloff? integer
 ---@field delay? integer
@@ -319,7 +348,7 @@ _G.FzfLua = require("fzf-lua")
 ---@field toggle_follow_flag string
 ---@field ignore_current_file boolean
 ---@field file_ignore_patterns string[]
----@field line_query boolean?
+---@field line_query boolean|fun(query: string): lnum: string?, new_query: string?
 ---@field raw_cmd string
 
 ---@class fzf-lua.config.Global : fzf-lua.config.Files
@@ -523,6 +552,8 @@ _G.FzfLua = require("fzf-lua")
 
 ---@class fzf-lua.config.Lsp: fzf-lua.config.LspBase
 ---@field symbols fzf-lua.config.LspSymbols
+---@field document_symbols fzf-lua.config.LspDocumentSymbols
+---@field workspace_symbols fzf-lua.config.LspWorkspaceSymbols
 ---@field finder fzf-lua.config.LspFinder
 ---@field code_actions fzf-lua.config.LspCodeActions
 
@@ -537,7 +568,9 @@ _G.FzfLua = require("fzf-lua")
 ---@field line_field_index string
 ---@field field_index_expr string
 
----@class fzf-lua.config.DocumentSymbols: fzf-lua.config.LspSymbols
+---@class fzf-lua.config.LspDocumentSymbols: fzf-lua.config.LspSymbols
+---@field __sym_bufnr integer
+---@field __sym_bufname string
 
 ---@class fzf-lua.config.LspWorkspaceSymbols: fzf-lua.config.LspSymbols
 ---@field lsp_query string
@@ -777,7 +810,7 @@ _G.FzfLua = require("fzf-lua")
 ---@class fzf-lua.config.LspDeclarations.p: fzf-lua.config.Lsp, {}
 ---@class fzf-lua.config.LspDefinitions.p: fzf-lua.config.Lsp, {}
 ---@class fzf-lua.config.LspDocumentDiagnostics.p: fzf-lua.config.Diagnostics, {}
----@class fzf-lua.config.LspDocumentSymbols.p: fzf-lua.config.DocumentSymbols, {}
+---@class fzf-lua.config.LspDocumentSymbols.p: fzf-lua.config.LspDocumentSymbols, {}
 ---@class fzf-lua.config.LspFinder.p: fzf-lua.config.LspFinder, {}
 ---@class fzf-lua.config.LspImplementations.p: fzf-lua.config.Lsp, {}
 ---@class fzf-lua.config.LspIncomingCalls.p: fzf-lua.config.Lsp, {}
