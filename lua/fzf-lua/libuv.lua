@@ -109,8 +109,7 @@ M.spawn = function(opts, fn_transform, fn_done)
   local args = _is_win and { "/d", "/e:off", "/f:off", "/v:on", "/c" } or { "-c" }
   if type(opts.cmd) == "table" then
     if _is_win then
-      ---@diagnostic disable-next-line: deprecated
-      table.move(opts.cmd, 1, #opts.cmd, #args + 1, args)
+      vim.list_extend(args, opts.cmd)
     else
       table.insert(args, table.concat(opts.cmd, " "))
     end
@@ -429,17 +428,15 @@ M.spawn_stdio = function(opts)
   -- 'nvim -l ...', we won't be able to search single quotes
   -- NOTE: since we cannot guarantee the positional index
   -- of arguments (#291), we use the last argument instead
-  local argv_expr = opts.is_live and type(opts.contents) == "string"
-  if argv_expr then
-    opts.cmd = opts.contents
-    FzfLua.make_entry.expand_query(opts, argv())
+  if opts.is_live and type(opts.contents) == "string" then
+    opts.contents = FzfLua.make_entry.expand_query(opts, argv(), opts.contents)
   end
 
   -- run the preprocessing fn
   if fn_preprocess then fn_preprocess(opts) end
 
   ---@type fzf-lua.content|fzf-lua.shell.data2
-  local cmd = argv_expr and opts.cmd or opts.contents
+  local cmd = opts.contents
   if type(cmd) == "string" and cmd:match("%-%-color[=%s]+never") then
     -- perf: skip stripping ansi coloring in `make_file.entry`
     opts.no_ansi_colors = true

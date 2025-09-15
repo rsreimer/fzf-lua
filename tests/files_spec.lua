@@ -82,7 +82,7 @@ T["files"]["previewer"]["builtin"] = new_set({ parametrize = { { "ci" }, { "buil
       winopts = { preview = { scrollbar = false } },
       previewer = previewer == "builtin"
           and "builtin"
-          or function() return require("fzf-lua.test.previewer") end,
+          or function() return require("fzf-lua.test.previewer").builtin end,
       __after_open = function()
         -- Verify previewer "last_entry" was set
         child.type_keys("<c-j>")
@@ -157,7 +157,7 @@ T["files"]["executable"] = new_set({ parametrize = { { "fd" }, { "rg" }, { "find
         return _G._exec(x)
       end
     ]]):format(exclude))
-    helpers.FzfLua.files(child, vim.tbl_extend("keep", opts, {
+    helpers.FzfLua.files(child, vim.tbl_deep_extend("keep", opts, {
       __expect_lines = true,
       __screen_opts = screen_opts,
       debug = 1,

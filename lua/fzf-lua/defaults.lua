@@ -505,7 +505,7 @@ M.defaults.git                   = {
   },
   bcommits = {
     cmd           = [[git log --color --pretty=format:"%C(yellow)%h%Creset ]]
-        .. [[%Cgreen(%><(12)%cr%><|(12))%Creset %s %C(blue)<%an>%Creset" {file}]],
+        .. [[%Cgreen(%><(12)%cr%><|(12))%Creset %s %C(blue)<%an>%Creset" -- {file}]],
     preview       = "git show --color {1} -- {file}",
     preview_pager = M._preview_pager_fn,
     actions       = {
@@ -1380,6 +1380,7 @@ M.defaults.zoxide                = {
   fn_transform  = [[return require("fzf-lua.make_entry").zoxide]],
   fn_preprocess = [[return require("fzf-lua.make_entry").preprocess]],
   cmd           = "zoxide query --list --score",
+  scope         = "global",
   git_root      = false,
   formatter     = "path.dirname_first",
   fzf_opts      = {
