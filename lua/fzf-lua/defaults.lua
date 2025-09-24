@@ -550,6 +550,18 @@ M.defaults.git                   = {
     _headers   = { "actions", "cwd" },
     _multiline = false,
   },
+  worktrees = {
+    scope      = "global", -- cd action scope "local|win|tab"
+    cmd        = "git worktree list",
+    preview    = [[git log --color --pretty=format:"%C(yellow)%h%Creset ]]
+        .. [[%Cgreen(%><(12)%cr%><|(12))%Creset %s %C(blue)<%an>%Creset"]],
+    actions    = {
+      ["enter"] = actions.git_worktree_cd,
+    },
+    fzf_opts   = { ["--no-multi"] = true },
+    _headers   = { "actions", "cwd" },
+    _multiline = false,
+  },
   tags = {
     cmd        = [[git for-each-ref --color --sort="-taggerdate" --format ]]
         .. [["%(color:yellow)%(refname:short)%(color:reset) ]]
@@ -1066,7 +1078,7 @@ M.defaults.lsp.document_symbols  = vim.tbl_deep_extend("force", {}, M.defaults.l
     ["--multi"]     = true,
     ["--tabstop"]   = "4",
     ["--delimiter"] = "[:]",
-    ["--with-nth"]  = "2..",
+    ["--with-nth"]  = utils.__IS_WINDOWS and "3.." or "2..",
   },
   _fmt        = {
     _from = function(s)
@@ -1179,12 +1191,14 @@ M.defaults.profiles              = {
 }
 
 M.defaults.marks                 = {
-  fzf_opts  = { ["--no-multi"] = true },
-  actions   = {
+  sort        = false,
+  fzf_opts    = { ["--no-multi"] = true },
+  actions     = {
     ["enter"] = actions.goto_mark,
     ["ctrl-x"] = { fn = actions.mark_del, reload = true }
   },
-  previewer = { _ctor = previewers.builtin.marks },
+  previewer   = { _ctor = previewers.builtin.marks },
+  _cached_hls = { "buf_nr", "path_linenr", "path_colnr" },
 }
 
 M.defaults.changes               = {
@@ -1391,7 +1405,7 @@ M.defaults.zoxide                = {
     ["--nth"]       = "2..",
     ["--no-sort"]   = true, -- sort by score
   },
-  actions       = { enter = actions.cd }
+  actions       = { enter = actions.zoxide_cd }
 }
 
 M.defaults.complete_line         = { complete = true }

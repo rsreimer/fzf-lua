@@ -978,14 +978,18 @@ end
 
 function Previewer.base:update_ts_context()
   local bufnr = self.preview_bufnr
-  if not bufnr or not package.loaded["treesitter-context"] then return end
-  local ft = vim.b[bufnr] and vim.b[bufnr]._ft
-  if not ft
+  if not bufnr
       or not self.win
       or not self.win:validate_preview()
       or not self.treesitter.enabled
       or not self.treesitter.context
+      or not package.loaded["treesitter-context"]
   then
+    return
+  end
+  local ft = vim.b[bufnr] and vim.b[bufnr]._ft
+  if not ft then
+    TSContext.close(self.win.preview_winid)
     return
   end
   -- HACK: since TS async parsing commit we cannot guarantee the TSContext ranges as these will
@@ -993,9 +997,13 @@ function Previewer.base:update_ts_context()
   -- https://github.com/neovim/neovim/commit/45e606b1fddbfeee8fe28385b5371ca6f2fba71b
   -- For more info see #1922
   local lang = vim.treesitter.language.get_lang(ft)
-  if not utils.has_ts_parser(lang) then return end
-  local parser = vim.treesitter.get_parser(self.preview_bufnr, lang)
-  if not parser then return end
+  if not utils.has_ts_parser(lang) then
+    TSContext.close(self.win.preview_winid)
+    return
+  end
+  local parser, err = vim.treesitter.get_parser(self.preview_bufnr, lang)
+  -- should never fail since `utils.has_ts_parser` returned true
+  assert(parser, "'vim.treesitter.get_parser' err: " .. tostring(err))
   local context_updated
   TSContext.zindex = self.win.winopts.zindex + 20
   for _, t in ipairs({ 0, 20, 50, 100 }) do
@@ -1468,7 +1476,7 @@ end
 
 function Previewer.marks:parse_entry(entry_str)
   local bufnr = nil
-  local mark, lnum, col, filepath = entry_str:match("(.)%s+(%d+)%s+(%d+)%s+(.*)")
+  local mark, lnum, col, filepath = entry_str:match("([^ ])%s+(%d+)%s+(%d+)%s+(.*)")
   if not mark then return {} end
   -- try to acquire position from sending buffer
   -- if this succeeds (line>0) the mark is inside
@@ -1481,7 +1489,6 @@ function Previewer.marks:parse_entry(entry_str)
     return vim.api.nvim_buf_get_mark(buf, mark)
   end)
   if pos and pos[1] > 0 then
-    assert(pos[1] == tonumber(lnum))
     bufnr = self.win.src_bufnr
     filepath = api.nvim_buf_get_name(bufnr)
   end
