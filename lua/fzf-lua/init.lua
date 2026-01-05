@@ -54,7 +54,7 @@ do
     group = vim.api.nvim_create_augroup("FzfLuaNvimQuit", { clear = true }),
     callback = function()
       local win = utils.fzf_winobj()
-      if win and win:hidden() then ---@diagnostic disable-next-line: param-type-mismatch
+      if win and win:hidden() then ---@cast win._hidden_fzf_bufnr -?
         vim.api.nvim_buf_delete(win._hidden_fzf_bufnr, { force = true })
       end
     end,
@@ -232,6 +232,12 @@ function M.setup(opts, do_not_reset_defaults)
   config.setup_opts = opts
   -- setup highlights
   M.setup_highlights()
+  -- opt-in register ui.select via setup
+  if opts.ui_select then
+    M.register_ui_select((type(opts.ui_select) == "table" or type(opts.ui_select) == "function")
+      and opts.ui_select or nil,
+      true) -- silent
+  end
 end
 
 M.redraw = function()

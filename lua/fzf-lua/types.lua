@@ -2,7 +2,7 @@
 error("Cannot require a meta file")
 
 ---@class fzf-lua
-_G.FzfLua = require("fzf-lua")
+local FzfLua = require("fzf-lua")
 
 ---@class fzf-lua.path.Entry
 ---@field stripped? string
@@ -23,8 +23,8 @@ _G.FzfLua = require("fzf-lua")
 ---@field tick? integer
 ---@field no_syntax? boolean
 ---@field cached? fzf-lua.buffer_or_file.Bcache
----@field content? string[]
 ---@field filetype? string
+---@field content? string
 
 ---@class fzf-lua.keymap.Entry
 ---@field vmap string?
@@ -146,6 +146,7 @@ _G.FzfLua = require("fzf-lua")
 ---@field cmd? string
 ---@field debug? boolean|integer|'v'|'verbose'
 ---@field preview_offset? string
+---@field render_crlf? boolean
 ---@field _fzf_cli_args? string[]
 ---@field __INFO fzf-lua.Info
 ---@field __CTX fzf-lua.Ctx
@@ -324,6 +325,7 @@ FzfLua.tags_live_grep = require("fzf-lua.providers.tags").live_grep
 FzfLua.tagstack = require("fzf-lua.providers.nvim").tagstack
 FzfLua.tmux_buffers = require("fzf-lua.providers.tmux").buffers
 FzfLua.treesitter = require("fzf-lua.providers.buffers").treesitter
+FzfLua.undotree = require("fzf-lua.providers.undotree").undotree
 FzfLua.zoxide = require("fzf-lua.providers.files").zoxide
 
 ---@class fzf-lua.win.api: fzf-lua.Win

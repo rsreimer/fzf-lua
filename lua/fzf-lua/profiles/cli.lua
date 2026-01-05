@@ -20,13 +20,24 @@ end)
 
 local function quit() vim.cmd.quit() end
 
+local function parse_entries(s, o)
+  return vim.tbl_map(function(e)
+    e = FzfLua.path.entry_to_file(e --[[@as string]], o)
+    e.path = FzfLua.path.relative_to(assert(e.path), FzfLua.utils.cwd())
+    return e
+  end, s)
+end
+
 local function posix_exec(cmd, ...)
   local _is_win = fn.has("win32") == 1 or fn.has("win64") == 1
   if type(cmd) ~= "string" or _is_win or not ffi then return end
-  ffi.C.execl(cmd, cmd, ...)
+  local args = { ... }
+  -- NOTE: must add NULL to mark end of the vararg
+  table.insert(args, string.byte("\0"))
+  ffi.C.execl(cmd, cmd, unpack(args))
+  -- if `execl` succeeds we should never get here
+  error(string.format([[execl("%s",...) failed with error %d]], cmd, ffi.errno()))
 end
-
-local function parse_entry(e) return e and e:match("%((.-)%)") or nil end
 
 _G.fzf_tty_get_width = function()
   if not ffi then return (assert(uv.new_tty(0, false)):get_winsize()) end
@@ -107,18 +118,25 @@ return {
     ["--border"] = HAS_TMUX and "rounded" or "top",
     ["--tmux"] = (function() return not HAS_TMUX and false or nil end)(),
   },
+  hls = {
+    title = "diffAdd",
+    title_flags = "Visual",
+    header_bind = "Directory",
+    header_text = "WarningMsg",
+    live_prompt = "ErrorMsg",
+  },
   actions = {
     files = {
       true,
       ["esc"] = quit,
       ["ctrl-c"] = quit,
       ["enter"] = function(s, o)
-        local entries = vim.tbl_map(
-          function(e) return FzfLua.path.entry_to_file(e, o) end, s)
-        entries = vim.tbl_map(function(e)
-          e.path = FzfLua.path.relative_to(e.path, vim.uv.cwd())
-          return e
-        end, entries)
+        local entries = parse_entries(s, o)
+        vim.tbl_map(function(e) io.stdout:write(e.path .. "\n") end, entries)
+        quit()
+      end,
+      ["ctrl-q"] = function(s, o)
+        local entries = parse_entries(s, o)
         if ffi and #entries == 1 then
           posix_exec(fn.exepath("nvim"), entries[1].path,
             entries[1].line and ("+" .. entries[1].line) or nil,
@@ -131,7 +149,6 @@ return {
           end, entries), file)
           posix_exec(fn.exepath("nvim"), "-q", file)
         end
-        io.stdout:write(vim.json.encode(entries) .. "\n")
         quit()
       end,
       ["ctrl-x"] = function(_, o)
@@ -149,7 +166,8 @@ return {
   serverlist = {
     actions = {
       ["enter"] = function(s)
-        local remote = parse_entry(s[1])
+        assert(s[1])
+        local remote = s[1]:match("%((.-)%)")
         posix_exec(fn.exepath("nvim"), "--remote-ui", "--server", remote)
       end
     }

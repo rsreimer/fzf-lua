@@ -21,7 +21,8 @@ function M._default_previewer_fn()
 end
 
 function M._preview_pager_fn()
-  return vim.fn.executable("delta") == 1 and ("delta --width=$COLUMNS --%s"):format(vim.o.bg) or
+  return vim.fn.executable("delta") == 1 and
+      ("delta --width=%s --%s"):format(utils._if_win_normalize_vars("$COLUMNS"), vim.o.bg) or
       nil
 end
 
@@ -596,9 +597,10 @@ M.defaults.git                   = {
   },
   ---@class fzf-lua.config.GitDiff: fzf-lua.config.GitBase
   diff = {
-    cmd               = "git --no-pager diff --name-only {ref}",
+    cmd               = "git --no-pager diff --name-only {compare_against} {ref}",
     ref               = "HEAD",
-    preview           = "git diff {ref} {file}",
+    compare_against   = "",
+    preview           = "git diff {compare_against} {ref} {file}",
     preview_pager     = M._preview_pager_fn,
     multiprocess      = 1, ---@type integer|boolean
     _type             = "file",
@@ -1542,25 +1544,31 @@ M.defaults.undotree              = {
 }
 
 ---@class fzf-lua.config.CommandHistory: fzf-lua.config.Base
+---@field reverse_list? boolean
 M.defaults.command_history       = {
   fzf_opts    = { ["--tiebreak"] = "index", ["--no-multi"] = true },
+  render_crlf = true,
   _treesitter = function(line) return "foo.vim", nil, line end,
   fzf_colors  = { ["hl"] = "-1:reverse", ["hl+"] = "-1:reverse" },
   actions     = {
     ["enter"]  = actions.ex_run_cr,
     ["ctrl-e"] = actions.ex_run,
+    ["ctrl-x"]  = { fn = actions.ex_del, field_index = "{+n}", reload = true }
   },
   _headers    = { "actions" },
 }
 
 ---@class fzf-lua.config.SearchHistory : fzf-lua.config.CommandHistory
+---@field reverse_search? boolean
 M.defaults.search_history        = {
   fzf_opts    = { ["--tiebreak"] = "index", ["--no-multi"] = true },
+  render_crlf = true,
   _treesitter = function(line) return "", nil, line, "regex" end,
   fzf_colors  = { ["hl"] = "-1:reverse", ["hl+"] = "-1:reverse" },
   actions     = {
     ["enter"]  = actions.search_cr,
     ["ctrl-e"] = actions.search,
+    ["ctrl-x"]  = { fn = actions.search_del, field_index = "{+n}", reload = true }
   },
   _headers    = { "actions" },
 }
