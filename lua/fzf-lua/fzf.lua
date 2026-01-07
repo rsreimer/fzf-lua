@@ -192,7 +192,9 @@ function M.raw_fzf(contents, fzf_cli_args, opts)
         and vim.api.nvim_get_mode().mode == "t"
     then
       -- Called from another fzf-win most likely
-      utils.feed_keys_termcodes("i")
+      -- Do not send i. If calling fzfLua.files() from another fzfLua window, the i is inserted in
+      -- the query.
+      -- utils.feed_keys_termcodes("i")
     else
       -- TODO(#2683):
       -- utils.feed_keys_termcodes("i")
