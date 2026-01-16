@@ -185,7 +185,7 @@ function M.notify(lvl, ...)
       verbose = false,
       err = M.__HAS_NVIM_011 and lvl == vim.log.levels.ERROR and true or nil,
     }
-    if _G.fzf_jobstart and #vim.api.nvim_list_uis() == 0 then
+    if echo_opts.err and _G.fzf_jobstart and #vim.api.nvim_list_uis() == 0 then
       local output = vim.tbl_map(function(chunk) return chunk[1] end, chunks)
       error(table.concat(output, ""))
     else
@@ -539,6 +539,7 @@ function M.map_set(m, k, v)
     if i == #keys then
       map[key] = v
     else
+      if type(map[key]) == "function" then break end
       map[key] = type(map[key]) == "table" and map[key] or {}
       map = map[key]
     end
@@ -1021,14 +1022,7 @@ end
 ---@param bufnr integer
 ---@return boolean
 function M.is_term_buffer(bufnr)
-  -- convert bufnr=0 to current buf so we can call 'bufwinid'
-  bufnr = bufnr == 0 and vim.api.nvim_get_current_buf() or bufnr
-  local winid = vim.fn.bufwinid(bufnr)
-  if tonumber(winid) > 0 and vim.api.nvim_win_is_valid(winid) then
-    return M.getwininfo(winid) --[[@cast -?]].terminal == 1
-  end
-  local bufname = vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_get_name(bufnr)
-  return M.is_term_bufname(bufname)
+  return vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].buftype == "terminal"
 end
 
 ---@param bufnr integer
@@ -1079,18 +1073,14 @@ end
 --   1 for qf list
 --   2 for loc list
 ---@param winid integer
----@param wininfo (vim.fn.getwininfo.ret.item|vim.fn.getwininfo.ret.item[]|false|table)?
 ---@return 1|2|false
-function M.win_is_qf(winid, wininfo)
-  wininfo = wininfo or (vim.api.nvim_win_is_valid(winid) and M.getwininfo(winid))
-  if wininfo and wininfo.quickfix == 1 then
-    return wininfo.loclist == 1 and 2 or 1
-  end
-  return false
+function M.win_is_qf(winid)
+  local winty = vim.api.nvim_win_is_valid(winid) and vim.fn.win_gettype(winid) or nil
+  return winty == "quickfix" and 1 or winty == "loclist" and 2 or false
 end
 
 ---@param bufnr integer
----@param bufinfo (vim.fn.getwininfo.ret.item|vim.fn.getwininfo.ret.item[]|false|table)?
+---@param bufinfo (vim.fn.getbufinfo.ret.item|vim.fn.getbufinfo.ret.item[]|false|table)?
 ---@return 1|2|false
 function M.buf_is_qf(bufnr, bufinfo)
   bufinfo = bufinfo or (vim.api.nvim_buf_is_valid(bufnr) and M.getbufinfo(bufnr))
@@ -1285,16 +1275,6 @@ function M.getbufinfo(bufnr)
     return vim.fn["fzf_lua#getbufinfo"](bufnr)
   else
     return vim.fn.getbufinfo(bufnr)[1] or {}
-  end
-end
-
----@param winid? integer
----@return vim.fn.getwininfo.ret.item?
-function M.getwininfo(winid)
-  if M.__HAS_AUTOLOAD_FNS then
-    return vim.fn["fzf_lua#getwininfo"](winid)
-  else
-    return vim.fn.getwininfo(winid)[1]
   end
 end
 
@@ -1650,24 +1630,24 @@ function M.pid_object(key, opts)
 end
 
 -- modified version of vim.wo
--- 1. always setlocal (to avoid potential pollute on win split)
--- 2. nop on non-exist option
--- 3. nop if unchange (set win option can be slow #2018)
-local function new_win_opt_accessor(winid)
+-- 1. no error on non-exist option
+-- 2. nop if unchange (set win option can be slow #2018)
+local function new_win_opt_accessor(winid, bufnr)
   return setmetatable({}, {
     __index = function(_, k)
-      if type(k) == "number" then return new_win_opt_accessor(k) end
+      if bufnr == nil and type(k) == "number" then
+        if winid == nil then return new_win_opt_accessor(k) end
+        return new_win_opt_accessor(winid, k)
+      end
       if vim.fn.exists("+" .. k) == 0 then return end
-      return vim.api.nvim_get_option_value(k, { scope = "local", win = winid or 0 })
+      return vim.api.nvim_get_option_value(k, { scope = bufnr and "local" or nil, win = winid or 0 })
     end,
     __newindex = function(_, k, v)
-      if vim.fn.exists("+" .. k) == 0
-          or vim.api.nvim_get_option_value(k, { scope = "local", win = winid or 0 }) == v then
-        return
-      end
-      vim.wo[winid or 0][k] = v
+      if vim.fn.exists("+" .. k) == 0 then return end
       -- TODO: causes issues with highlights
-      -- vim.api.nvim_set_option_value(k, v, { scope = "local", win = winid or 0 })
+      local scope = bufnr and "local" or nil
+      if vim.api.nvim_get_option_value(k, { scope = scope, win = winid or 0 }) == v then return end
+      vim.api.nvim_set_option_value(k, v, { scope = scope, win = winid or 0 })
     end,
   })
 end

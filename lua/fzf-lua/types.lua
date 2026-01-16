@@ -8,8 +8,8 @@ local FzfLua = require("fzf-lua")
 ---@field stripped? string
 ---@field path? string
 ---@field bufnr? integer
----@field line? integer
----@field col? integer
+---@field line? integer 1-based
+---@field col? integer 1-based
 ---@field bufname? string
 ---@field terminal? boolean
 ---@field ctag? string
@@ -24,7 +24,9 @@ local FzfLua = require("fzf-lua")
 ---@field no_syntax? boolean
 ---@field cached? fzf-lua.buffer_or_file.Bcache
 ---@field filetype? string
----@field content? string
+---@field content? string[]
+---@field end_line? integer 1-based
+---@field end_col? integer 1-based
 
 ---@class fzf-lua.keymap.Entry
 ---@field vmap string?
@@ -202,7 +204,7 @@ local FzfLua = require("fzf-lua")
 ---@field actions fzf-lua.config.Actions
 ---@field keymap fzf-lua.config.Keymap
 ---@field fzf_opts table<string, any>
----@field _resume_reload? boolean
+---@field _resume_reload? boolean|function
 ---@field _fzf_cli_args string[]
 ---@field _uri? boolean
 
@@ -304,6 +306,7 @@ FzfLua.marks = require("fzf-lua.providers.nvim").marks
 FzfLua.menus = require("fzf-lua.providers.nvim").menus
 FzfLua.nvim_options = require("fzf-lua.providers.nvim").nvim_options
 FzfLua.oldfiles = require("fzf-lua.providers.oldfiles").oldfiles
+FzfLua.history = require("fzf-lua.providers.oldfiles").history
 FzfLua.packadd = require("fzf-lua.providers.nvim").packadd
 FzfLua.profiles = require("fzf-lua.providers.meta").profiles
 FzfLua.quickfix = require("fzf-lua.providers.quickfix").quickfix
