@@ -1055,7 +1055,7 @@ function M.save_dialog(bufnr)
     M.warn(string.format("buffer %d has unsaved changes", bufnr))
     return false
   end
-  local res = vim.fn.confirm(string.format([[Save changes to "%s"?]], info.name),
+  local res = M.confirm(string.format([[Save changes to "%s"?]], info.name),
     "&Yes\n&No\n&Cancel")
   if res == 0 or res == 3 then
     -- user cancelled
@@ -1133,11 +1133,15 @@ function M.nvim_buf_get_name(bufnr, bufinfo)
   end
   local bufname = vim.api.nvim_buf_get_name(bufnr)
   if #bufname == 0 then
-    local is_qf = M.buf_is_qf(bufnr, bufinfo)
-    if is_qf then
-      bufname = is_qf == 1 and "[Quickfix List]" or "[Location List]"
+    if vim.bo[bufnr].buftype == "nofile" then
+      bufname = "[Scratch]"
     else
-      bufname = "[No Name]"
+      local is_qf = M.buf_is_qf(bufnr, bufinfo)
+      if is_qf then
+        bufname = is_qf == 1 and "[Quickfix List]" or "[Location List]"
+      else
+        bufname = "[No Name]"
+      end
     end
   end
   assert(#bufname > 0)
@@ -1329,6 +1333,19 @@ function M.input(prompt, default)
     end
   end
   return ok and res or nil
+end
+
+-- wrapper around |confirm()| to allow cancellation with `<C-c>`
+---@param msg string
+---@param choice? string
+---@param default? integer
+---@param ty? string
+---@return integer
+function M.confirm(msg, choice, default, ty)
+  local ok, res = pcall(vim.fn.confirm, msg, choice, default, ty)
+  if ok and type(res) == "number" then return res end
+  if type(res) == "string" and res:match("Keyboard interrupt") then return 0 end -- <C-c>
+  error(res)
 end
 
 function M.fzf_bind_to_neovim(key)

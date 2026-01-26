@@ -414,10 +414,13 @@ M.fzf = function(contents, opts)
   -- This was added by 'resume': when '--print-query' is specified
   -- we are guaranteed to have the query in the first line, save&remove it
   if selected and #selected > 0 then
-    if not (opts._is_skim and opts.is_live) then
-      -- reminder: this doesn't get called with 'live_grep' when using skim
-      -- due to a bug where '--print-query --interactive' combo is broken:
-      -- skim always prints an empty line where the typed query should be.
+    -- NOTE: this doesn't get called with 'live_grep' when using skim <v1
+    -- due to a bug where '--print-query --interactive' combo is broken:
+    -- skim always prints an empty line where the typed query should be.
+    if not (opts.is_live
+          and utils.has(opts, "sk")
+          and not utils.has(opts, "sk", { 1, 5, 3 }))
+    then
       config.resume_set("query", selected[1], opts)
     end
     table.remove(selected, 1)
@@ -1039,7 +1042,7 @@ end
 ---@return table
 M.convert_exec_silent_actions = function(opts)
   -- `execute-silent` actions are bugged with skim (can't use quotes)
-  if utils.has(opts, "sk") then
+  if utils.has(opts, "sk") and not utils.has(opts, "sk", { 1, 5, 3 }) then
     return opts
   end
   for k, v in pairs(opts.actions) do
@@ -1103,7 +1106,7 @@ M.setup_fzf_live_flags = function(command, bind_start, opts)
     reload_command = string.format("sleep %.2f; %s", opts.query_delay / 1000, reload_command)
   end
 
-  if opts._is_skim then
+  if utils.has(opts, "sk") then
     opts.prompt = opts.__prompt or opts.prompt or opts.fzf_opts["--prompt"]
     if opts.prompt then
       opts.fzf_opts["--prompt"] = opts.prompt:match("[^%*]+")
@@ -1114,15 +1117,19 @@ M.setup_fzf_live_flags = function(command, bind_start, opts)
       opts.__prompt = opts.prompt
       opts.prompt = nil
     end
-    -- since we surrounded the skim placeholder with quotes
-    -- we need to escape them in the initial query
-    opts.fzf_opts["--cmd-query"] = utils.sk_escape(opts.query)
+    opts.fzf_opts["--cmd-query"] = utils.has(opts, "sk", { 1, 5, 3 }) and opts.query
+        -- NOTE: skim <v1, since we surrounded the skim placeholder
+        -- with quotes we need to escape them in the initial query
+        or utils.sk_escape(opts.query)
     -- '--query' was set by 'resume()', skim has the option to switch back and
     -- forth between interactive command and fuzzy matching (using 'ctrl-q')
     -- setting both '--query' and '--cmd-query' will use <query> to fuzzy match
     -- on top of our result set, double filtering our results (undesirable)
     opts.fzf_opts["--query"] = nil
     opts.query = nil
+    -- flag swap "histoey" <-> "cmd-history"
+    opts.fzf_opts["--cmd-history"] = opts.fzf_opts["--history"]
+    opts.fzf_opts["--history"] = nil
     -- setup as interactive
     table.insert(opts._fzf_cli_args, string.format("--interactive --cmd %s",
       libuv.shellescape(reload_command)))
@@ -1146,12 +1153,15 @@ end
 -- query placeholder for "live" queries
 M.fzf_query_placeholder = "<query>"
 
----@param opts { field_index?: string, _is_skim?: boolean }
+---@param opts { field_index?: string }
 ---@return string
 M.fzf_field_index = function(opts)
   -- fzf already adds single quotes around the placeholder when expanding.
   -- for skim we surround it with double quotes or single quote searches fail
-  return opts and opts.field_index or opts._is_skim and [["{}"]] or "{q}"
+  -- skim >= v1.5.3 already escapes the field index
+  return opts and opts.field_index
+      or utils.has(opts, "sk") and not utils.has(opts, "sk", { 1, 5, 3 }) and [["{}"]]
+      or "{q}"
 end
 
 ---@param cmd string

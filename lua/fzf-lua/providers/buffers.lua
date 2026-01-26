@@ -129,6 +129,8 @@ end
 local populate_buffer_entries = function(opts, bufnrs, winid)
   ---@type table[]
   local buffers = {}
+  -- Filter invalid buffers (#2519)
+  bufnrs = vim.tbl_filter(function(b) return vim.api.nvim_buf_is_valid(b) end, bufnrs)
   for _, bufnr in ipairs(bufnrs) do
     local buf = getbuf(bufnr)
 
@@ -373,7 +375,7 @@ M.buffer_lines = function(opts)
     end)()
   end
 
-  opts = core.set_fzf_field_index(opts, "{3}", opts._is_skim and "{}" or "{..-2}")
+  opts = core.set_fzf_field_index(opts, "{3}", utils.has(opts, "sk") and "{}" or "{..-2}")
   return core.fzf_exec(contents, opts)
 end
 
