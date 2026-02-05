@@ -256,7 +256,7 @@ end
 function Previewer.cmd_async:cmdline(o)
   o = o or {}
   local act = shell.stringify_cmd(function(items)
-    self._last_query = items[2] or ""
+    FzfLua.get_info().query = items[2] or ""
     local filepath, _, errcmd = self:parse_entry_and_verify(items[1])
     if not filepath then return utils.shell_nop() end
     local cmd = errcmd or ("%s %s %s"):format(
@@ -310,7 +310,7 @@ end
 function Previewer.bat_async:cmdline(o)
   o = o or {}
   local act = shell.stringify_cmd(function(items, fzf_lines)
-    self._last_query = items[2] or ""
+    FzfLua.get_info().query = items[2] or ""
     if items[1] == "" then return utils.shell_nop() end
     local filepath, entry, errcmd = self:parse_entry_and_verify(items[1])
     if not filepath or not entry then return utils.shell_nop() end
@@ -514,7 +514,8 @@ Previewer.nvim_server = Previewer.cmd_async:extend()
 ---@param addr string
 ---@param lines integer
 ---@param columns integer
----@return integer? pid
+---@return boolean|integer? pid
+---@return string|any, ...any error
 local function make_screenshot(screenshot, addr, lines, columns)
   local closing = false
   local ok, uis = utils.rpcexec(addr, "nvim_list_uis")
@@ -527,16 +528,14 @@ local function make_screenshot(screenshot, addr, lines, columns)
   local has_tui = vim.iter(uis):find(function(info) return info.stdout_tty end)
   if has_tui then
     if vim.env.NVIM == addr then -- parent instance
-      utils.rpcexec(addr, "nvim__screenshot", screenshot)
-      return
+      return utils.rpcexec(addr, "nvim__screenshot", screenshot)
     end
-    utils.rpcexec(addr, "nvim_exec_lua", [[
+    return utils.rpcexec(addr, "nvim_exec_lua", [[
       local lines, columns, screenshot = ...
       return vim._with({ go = { lines = lines, columns = columns } }, function()
-        api.nvim__screenshot(screenshot)
+        vim.api.nvim__screenshot(screenshot)
       end)
     ]], { lines, columns, screenshot })
-    return
   end
   local jobstart = _G.fzf_pty_spawn or vim.fn.jobstart
   local nvim_bin = os.getenv("FZF_LUA_NVIM_BIN") or vim.v.progpath
@@ -562,12 +561,16 @@ end
 function Previewer.nvim_server:cmdline(_)
   local function parse_entry(e) return e and e:match("%((.-)%)") or nil end
   return FzfLua.shell.stringify_cmd(function(items, lines, columns)
-    self._last_query = items[2] or ""
+    FzfLua.get_info().query = items[2] or ""
     local addr = parse_entry(items[1])
     if not addr then return "true" end
     local screenshot = assert(self.opts._screenshot) ---@type string
-    local pid = make_screenshot(screenshot, addr, lines, columns)
-    local wait = pid
+    local pid, err = make_screenshot(screenshot, addr, lines, columns)
+    if err then
+      return "echo " .. FzfLua.libuv.shellescape(string.format(
+        "make_screenshot failed with error: %s", tostring(err)))
+    end
+    local wait = tonumber(pid)
         and vim.fn.executable("waitpid") == 1
         and ("waitpid %s;"):format(pid)
         or ("sleep %s;"):format(50 / 1000)

@@ -15,6 +15,7 @@ local M = {}
 M.__HAS_NVIM_010 = vim.fn.has("nvim-0.10") == 1
 M.__HAS_NVIM_0102 = vim.fn.has("nvim-0.10.2") == 1
 M.__HAS_NVIM_011 = vim.fn.has("nvim-0.11") == 1
+M.__HAS_NVIM_0116 = vim.fn.has("nvim-0.11.6") == 1
 M.__HAS_NVIM_012 = vim.fn.has("nvim-0.12") == 1
 M.__IS_WINDOWS = vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1
 -- `:help shellslash` (for more info see #1055)
@@ -1025,7 +1026,7 @@ function M.is_term_buffer(bufnr)
   return vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].buftype == "terminal"
 end
 
----@param bufnr integer
+---@param bufnr? integer
 ---@param warn? boolean
 ---@param only_if_last_buffer? boolean
 ---@return boolean
@@ -1508,7 +1509,8 @@ function M.rpcexec(addr, method, ...)
   ---@cast chan integer
   local ret = { pcall(vim.rpcrequest, chan, method, ...) }
   vim.fn.chanclose(chan)
-  return unpack(ret)
+  local tonil = function(v) if v == vim.NIL then return nil else return v end end
+  return unpack(vim.tbl_map(tonil, ret))
 end
 
 --- Checks if treesitter parser for language is installed

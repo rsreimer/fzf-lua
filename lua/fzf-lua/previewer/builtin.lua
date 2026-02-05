@@ -466,21 +466,22 @@ function Previewer.base:display_entry(entry_str)
     self.preview_bufnr = self:clear_preview_buf(true)
   end
 
+  ---@async
   local populate_preview_buf = function(entry_str_)
     if not self.win or not self.win:validate_preview() then return end
 
     -- specialized previewer populate function
     ---@cast self fzf-lua.previewer.BufferOrFile base class def don't make sense here
-    self:populate_preview_buf(entry_str_)
+    if self:populate_preview_buf(entry_str_) == false then return end
 
     -- reset the preview window highlights
     self.win:reset_win_highlights(self.win.preview_winid)
   end
 
   -- debounce preview entries
-  self:debounce("preview", self.delay, function()
+  self:debounce("preview", self.delay, coroutine.wrap(function()
     populate_preview_buf(entry_str)
-  end)
+  end))
 end
 
 function Previewer.base:cmdline(_)
@@ -493,7 +494,7 @@ function Previewer.base:cmdline(_)
     -- upvalue incase previewer was detached/re-attached (global picker)
     self = self.win._previewer or self ---@type fzf-lua.previewer.Builtin
     -- on windows, query may not be expanded to a string: #1887
-    self.opts._last_query = query or ""
+    FzfLua.get_info().query = query or ""
     self:display_entry(entry)
     -- save last entry even if we don't display
     self.last_entry = entry
@@ -669,9 +670,11 @@ function Previewer.buffer_or_file:entry_to_file(entry_str)
   return path.entry_to_file(entry_str, self.opts)
 end
 
+---async result can be return by "_cb(res)"
 ---@param entry_str string
+---@param _cb? function
 ---@return fzf-lua.buffer_or_file.Entry
-function Previewer.buffer_or_file:parse_entry(entry_str)
+function Previewer.buffer_or_file:parse_entry(entry_str, _cb)
   ---@type fzf-lua.buffer_or_file.Entry
   local entry = self:entry_to_file(entry_str)
   local buf = entry.bufnr
@@ -688,9 +691,11 @@ function Previewer.buffer_or_file:parse_entry(entry_str)
   end
   if entry.path then
     if entry.path:find("^fugitive://") and buf and api.nvim_buf_is_valid(buf) then
-      entry.do_not_cache = true
-      api.nvim_buf_call(buf,
-        function() vim.cmd(("do fugitive BufReadCmd %s"):format(entry.path)) end)
+      if fn.exists("#fugitive#BufReadCmd") == 1 then
+        api.nvim_buf_call(buf, function()
+          api.nvim_exec_autocmds("BufReadCmd", { group = "fugitive", pattern = entry.path })
+        end)
+      end
       return entry
     end
     entry.tick = vim.tbl_get(uv.fs_stat(entry.path) or {}, "mtime", "nsec")
@@ -852,6 +857,7 @@ end
 ---@param entry fzf-lua.buffer_or_file.Entry
 ---@return string?
 function Previewer.buffer_or_file:key_from_entry(entry)
+  if entry.do_not_cache then return nil end
   return (entry.bufnr and string.format("bufnr:%d", entry.bufnr) or entry.uri or entry.path) or nil
 end
 
@@ -859,7 +865,6 @@ end
 ---@param entry fzf-lua.buffer_or_file.Entry
 ---@return fzf-lua.buffer_or_file.Bcache?
 function Previewer.buffer_or_file:check_bcache(entry)
-  if entry.do_not_cache then return end
   local key = self:key_from_entry(entry)
   if not key then return end
   local cached = self.cached_buffers[key]
@@ -867,10 +872,6 @@ function Previewer.buffer_or_file:check_bcache(entry)
   entry.cached = cached
   assert(self.cached_bufnrs[cached.bufnr])
   assert(api.nvim_buf_is_valid(cached.bufnr))
-  if not cached.tick then -- in case cache don't have "tick"
-    assert(cached.tick == entry.tick)
-    return cached
-  end
   if entry.tick ~= cached.tick then
     cached.invalid = true
     cached.tick = entry.tick
@@ -878,12 +879,49 @@ function Previewer.buffer_or_file:check_bcache(entry)
   return cached
 end
 
+---@alias fzf-lua.line (string|[string,string])[]
+---@param content (string|fzf-lua.line)[]
+---@return string[], table
+local parse_rich = function(content)
+  local lines, extmarks = {}, {}
+  for i, line in ipairs(content) do
+    -- If the line is a string, just add it directly.
+    -- Otherwise, it's a table of parts (rich text line)
+    if type(line) == "string" then
+      lines[#lines + 1] = line
+    else
+      local parts = {}
+      local col = 0
+      for _, part in ipairs(line) do
+        local norm_part = type(part) == "string" and { part } or part
+        local text, hl = norm_part[1] or "", norm_part[2]
+        parts[#parts + 1] = text
+        local end_col = col + #text
+        if hl then
+          extmarks[#extmarks + 1] = { row = i - 1, col = col, end_col = end_col, hl_group = hl }
+        end
+        col = end_col
+      end
+      lines[#lines + 1] = table.concat(parts, "")
+    end
+  end
+  return lines, extmarks
+end
+
+---@async
 ---@param entry_str string
+---@return false? no preview
 function Previewer.buffer_or_file:populate_preview_buf(entry_str)
   if not self.win or not self.win:validate_preview() then return end
   -- stop ueberzug shell job
   self:stop_ueberzug()
-  local entry = self:parse_entry(entry_str)
+  local co = coroutine.running()
+  -- schedule can avoid "cannot resume running coroutine"
+  local entry = self:parse_entry(entry_str,
+    vim.schedule_wrap(function(res) assert(coroutine.resume(co, res)) end))
+  self._last_entry = entry_str
+  entry = entry or coroutine.yield()
+  if entry_str ~= self._last_entry or not self.win:validate_preview() then return false end
   if utils.tbl_isempty(entry) then return end
   local cached = self:check_bcache(entry)
   if cached and not cached.invalid and not self:should_load_buffer(entry) then
@@ -965,9 +1003,10 @@ function Previewer.buffer_or_file:populate_preview_buf(entry_str)
       return
     end
     do
-      local lines = nil
+      ---@type (fzf-lua.line|string)[]
+      local lines
       if entry.debug then
-        lines = { entry.debug }
+        lines = { { { entry.debug, "Error" } } }
       elseif entry.content then
         lines = entry.content
       else
@@ -986,7 +1025,17 @@ function Previewer.buffer_or_file:populate_preview_buf(entry_str)
         end
       end
       if lines then
-        pcall(api.nvim_buf_set_lines, tmpbuf, 0, -1, false, lines)
+        local textlines, extmarks = parse_rich(lines)
+        extmarks = entry.extmarks or extmarks
+        pcall(api.nvim_buf_set_lines, tmpbuf, 0, -1, false, textlines)
+        if extmarks and #extmarks > 0 then
+          local setmark = vim.F.nil_wrap(api.nvim_buf_set_extmark)
+          local ns = api.nvim_create_namespace("fzf-lua.preview.hl")
+          for _, extmark in ipairs(extmarks) do
+            setmark(tmpbuf, ns, extmark.row, extmark.col,
+              { end_col = extmark.end_col, hl_group = extmark.hl_group })
+          end
+        end
         -- swap preview buffer with new one
         self:set_preview_buf(tmpbuf)
         self:preview_buf_post(entry)
@@ -1221,9 +1270,12 @@ function Previewer.buffer_or_file:do_syntax(entry)
   end
 
   -- filetype detect
-  local did_filetype_detect
-  local ft = entry.filetype or
-      vim.filetype.match({ buf = bufnr, filename = filepath, contents = entry.content })
+  local did_filetype_detect = entry.filetype and true or false
+  local ft = entry.filetype or vim.filetype.match({
+    buf = bufnr,
+    filename = filepath,
+    contents = entry.content and parse_rich(entry.content) or nil
+  })
   if not ft then
     ft = filetype_detect(bufnr, filepath)
     if not ft then return end
@@ -1250,20 +1302,14 @@ function Previewer.buffer_or_file:do_syntax(entry)
   end)()
 
   while true do
-    local ts_success = ts_enabled and ts_attach(bufnr, ft)
-    if ts_success then
-      self:update_render_markdown()
-      break
-    end
-    if did_filetype_detect then
-      vim.bo[bufnr].syntax = ft
-      break
-    end
+    if ts_enabled and ts_attach(bufnr, ft) then return end
+    if did_filetype_detect then break end
     -- sometimes vim.filetype.match get a poor filetype (e.g. ft=text)
     -- this should be a fallback we should detect it again from ftdetect/modeline
     ft = filetype_detect(bufnr, filepath) or ft
     did_filetype_detect = true
   end
+  vim.bo[bufnr].syntax = ft
 end
 
 function Previewer.base:maybe_set_cursorline(win, pos)
@@ -1281,7 +1327,7 @@ end
 ---@param entry fzf-lua.buffer_or_file.Entry
 function Previewer.buffer_or_file:set_cursor_hl(entry)
   local mgrep, glob_args = require("fzf-lua.providers.grep"), nil
-  local regex = self.opts.__ACT_TO == mgrep.grep and self.opts._last_query
+  local regex = self.opts.__ACT_TO == mgrep.grep and FzfLua.get_info().query
       or self.opts.__ACT_TO == mgrep.live_grep and self.opts.search or nil
   local opts = self.opts.__ACT_TO == mgrep.live_grep and self.opts.__call_opts or self.opts
   if regex and self.opts.fn_transform_cmd then
@@ -1402,6 +1448,7 @@ function Previewer.buffer_or_file:preview_buf_post(entry, min_winopts)
     local syntax = function()
       if self.syntax then
         self:do_syntax(entry)
+        self:update_render_markdown()
         self:update_ts_context()
         self:attach_snacks_image_inline()
       end
@@ -1431,12 +1478,10 @@ function Previewer.buffer_or_file:preview_buf_post(entry, min_winopts)
 
   -- Should we cache the current preview buffer?
   -- we cache only named buffers with valid path/uri
-  if not entry.do_not_cache and self.preview_bufnr then
-    local key = self:key_from_entry(entry)
-    if not key then return end
-    local cached = self:cache_buffer(self.preview_bufnr, key, min_winopts)
-    cached.tick = entry.tick
-  end
+  local key = self:key_from_entry(entry)
+  if not key then return end
+  local cached = self:cache_buffer(self.preview_bufnr, key, min_winopts)
+  cached.tick = entry.tick
 end
 
 ---@class fzf-lua.previewer.HelpTags : fzf-lua.previewer.BufferOrFile,{}
@@ -1660,15 +1705,11 @@ function Previewer.highlights:parse_entry(entry_str)
     hl = hl_def.link
   until not hl
   table.insert(lines, [[]])
-  table.insert(lines, [["THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG"]])
+  table.insert(lines, { { [["THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG"]], hlgroup } })
   return {
     filetype = "lua",
     title = hl,
     content = lines,
-    line = #lines,
-    col = 1,
-    end_col = 1 + #lines[#lines],
-    hlgroup = hlgroup
   }
 end
 
