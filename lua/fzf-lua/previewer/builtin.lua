@@ -337,12 +337,11 @@ function Previewer.base:set_preview_buf(newbuf, min_winopts, no_wipe)
   end, { buffer = newbuf })
   self.preview_bufnr = newbuf
   -- set preview window options
+  -- sets the style defined by `winopts.preview.winopts`
+  self:set_style_winopts()
   if min_winopts then
     -- removes 'number', 'signcolumn', 'cursorline', etc
     self.win:set_style_minimal(self.win.preview_winid, true)
-  else
-    -- sets the style defined by `winopts.preview.winopts`
-    self:set_style_winopts()
   end
   if not no_wipe then
     -- although the buffer has 'bufhidden:wipe' it sometimes doesn't
@@ -562,17 +561,7 @@ function Previewer.base:scroll(direction)
 
   if not input then return end
 
-  if direction == "reset" then
-    pcall(api.nvim_win_call, preview_winid, function()
-      -- for some reason 'nvim_win_set_cursor'
-      -- only moves forward, so set to (1,0) first
-      api.nvim_win_set_cursor(0, { 1, 0 })
-      if self.orig_pos then
-        api.nvim_win_set_cursor(0, self.orig_pos)
-      end
-      utils.zz()
-    end)
-  else
+  local scroll = function()
     pcall(api.nvim_win_call, preview_winid, function()
       vim.cmd([[norm! ]] .. input)
       -- `zb` at bottom?
@@ -584,6 +573,28 @@ function Previewer.base:scroll(direction)
         vim.cmd("norm! zvzb")
       end
     end)
+  end
+
+  if direction == "reset" then
+    pcall(api.nvim_win_call, preview_winid, function()
+      -- for some reason 'nvim_win_set_cursor'
+      -- only moves forward, so set to (1,0) first
+      api.nvim_win_set_cursor(0, { 1, 0 })
+      if self.orig_pos then
+        api.nvim_win_set_cursor(0, self.orig_pos)
+      end
+      utils.zz()
+    end)
+  else
+    if utils.is_term_buffer(self.preview_bufnr) and api.nvim_get_mode().mode == "t" then
+      vim.cmd.stopinsert()
+      vim.schedule(function()
+        scroll()
+        vim.cmd.startinsert()
+      end)
+    else
+      scroll()
+    end
   end
 
   -- 'cursorline' is effectively our match highlight. Once the
@@ -615,17 +626,15 @@ function Previewer.base:copy_extmarks()
   local win = self.win.preview_winid
   local topline = fn.line("w0", win)
   local botline = fn.line("w$", win)
+  api.nvim_buf_clear_namespace(dst_bufnr, ns, topline, botline)
   for _, n in pairs(api.nvim_get_namespaces()) do
     local extmarks = api.nvim_buf_get_extmarks(src_bufnr, n, { topline - 1, 0 },
       { botline - 1, -1 },
       { details = true })
     for _, m in ipairs(extmarks) do
       local _, row, col, details = unpack(m) ---@cast details -?
-      local endRow, endCol = details.end_row, details.end_col
-      local hlGroup = details.hl_group
-      local priority = details.priority
-      pcall(api.nvim_buf_set_extmark, dst_bufnr, ns, row, col,
-        { end_row = endRow, end_col = endCol, hl_group = hlGroup, priority = priority })
+      details.ns_id = nil
+      pcall(api.nvim_buf_set_extmark, dst_bufnr, ns, row, col, details)
     end
   end
 end
@@ -688,16 +697,17 @@ function Previewer.buffer_or_file:parse_entry(entry_str, _cb)
   -- filename only
   if buf and api.nvim_buf_is_valid(buf) then
     entry.path = path.relative_to(api.nvim_buf_get_name(buf), utils.cwd())
-  end
-  if entry.path then
-    if entry.path:find("^fugitive://") and buf and api.nvim_buf_is_valid(buf) then
-      if fn.exists("#fugitive#BufReadCmd") == 1 then
-        api.nvim_buf_call(buf, function()
-          api.nvim_exec_autocmds("BufReadCmd", { group = "fugitive", pattern = entry.path })
-        end)
-      end
+    if entry.path:find("^fugitive://") then
+      api.nvim_buf_call(buf, function()
+        api.nvim_exec_autocmds("BufReadCmd", {
+          group = fn.exists("#fugitive#BufReadCmd") == 1 and "fugitive" or nil,
+          pattern = entry.path
+        })
+      end)
       return entry
     end
+  end
+  if entry.path then
     entry.tick = vim.tbl_get(uv.fs_stat(entry.path) or {}, "mtime", "nsec")
   end
   return entry
@@ -908,6 +918,50 @@ local parse_rich = function(content)
   return lines, extmarks
 end
 
+---@param buf integer
+---@param entry fzf-lua.cmd.Entry
+---@param opts table
+local start_cmd = function(buf, entry, opts)
+  local chan ---@type integer?
+  local obj ---@type vim.SystemObj?
+  local close = function(err)
+    if chan then
+      pcall(fn.chanclose, chan)
+      chan = nil
+    end
+    if obj and not obj:is_closing() then
+      obj:kill(vim.uv.constants.SIGTERM)
+      obj = nil
+    end
+    if err then error(err) end
+  end
+  local try_send = function(data)
+    if not opts.cancel() and chan and pcall(api.nvim_chan_send, chan, data) then
+      return opts.on_send(data)
+    end
+  end
+  local stdout, on_exit
+  if entry.cmd_stream ~= false then
+    chan = api.nvim_open_term(buf, {})
+    stdout = vim.schedule_wrap(function(err, data)
+      if err then close(err) end
+      if data then try_send(data) end
+    end)
+  end
+  on_exit = vim.schedule_wrap(function(obj0)
+    if not api.nvim_buf_is_valid(buf) then return end
+    if entry.cmd_stream ~= false then
+      opts.on_exit()
+    else
+      chan = api.nvim_open_term(buf, {})
+      try_send(vim.trim(obj0.stderr or "") ~= "" and obj0.stderr or obj0.stdout or "")
+    end
+  end)
+  local sopts = entry.cmd_opts or {}
+  sopts = vim.tbl_deep_extend("force", sopts, { stdout = stdout, stderr = stdout })
+  obj = vim.system(entry.cmd, sopts, on_exit)
+end
+
 ---@async
 ---@param entry_str string
 ---@return false? no preview
@@ -1009,6 +1063,19 @@ function Previewer.buffer_or_file:populate_preview_buf(entry_str)
         lines = { { { entry.debug, "Error" } } }
       elseif entry.content then
         lines = entry.content
+      elseif entry.cmd then
+        local opened = false
+        return start_cmd(tmpbuf, entry, {
+          cancel = function() return entry_str ~= self._last_entry end,
+          on_send = function()
+            if opened then return end
+            opened = true
+            self:set_preview_buf(tmpbuf, true)
+          end,
+          on_exit = function()
+            self:preview_buf_post(entry)
+          end,
+        })
       else
         -- make sure the file is readable (or bad entry.path)
         local fs_stat = entry.path and uv.fs_stat(entry.path)
@@ -1036,6 +1103,7 @@ function Previewer.buffer_or_file:populate_preview_buf(entry_str)
               { end_col = extmark.end_col, hl_group = extmark.hl_group })
           end
         end
+        if entry.open_term then api.nvim_open_term(tmpbuf, {}) end
         -- swap preview buffer with new one
         self:set_preview_buf(tmpbuf)
         self:preview_buf_post(entry)
@@ -1441,16 +1509,18 @@ end
 ---@param min_winopts boolean?
 function Previewer.buffer_or_file:preview_buf_post(entry, min_winopts)
   if not self.win or not self.win:validate_preview() then return end
-  if not utils.is_term_buffer(self.preview_bufnr) then
-    -- set cursor highlights for line|col or tag
-    self:set_cursor_hl(entry)
 
+  -- set cursor highlights for line|col or tag
+  self:set_cursor_hl(entry)
+
+  if not utils.is_term_buffer(self.preview_bufnr) then
     local syntax = function()
       if self.syntax then
         self:do_syntax(entry)
         self:update_render_markdown()
         self:update_ts_context()
         self:attach_snacks_image_inline()
+        vim.schedule(function() self:copy_extmarks() end)
       end
       -- for attach_snacks_image_{inline,buf}
       -- https://github.com/folke/snacks.nvim/pull/1615
@@ -1864,6 +1934,37 @@ function Previewer.nvim_options:parse_entry(entry_str)
   vim.list_extend(content, { "*info* >lua" })
   vim.list_extend(content, vim.tbl_map(function(s) return "  " .. s end, vim.split(info, "\n")))
   return { title = string.format(" %s ", option), filetype = "help", content = content }
+end
+
+---@class fzf-lua.previewer.VTerm : fzf-lua.previewer.BufferOrFile,{}
+---@field super fzf-lua.previewer.BufferOrFile,{}
+Previewer.vterm = Previewer.buffer_or_file:extend()
+
+---@param o table
+---@param opts table
+---@param previewer fzf-lua.previewer.Fzf
+---@return fzf-lua.previewer.VTerm
+function Previewer.vterm:new(o, opts, previewer)
+  Previewer.vterm.super.new(self, o, opts)
+  self.previewer = previewer
+  return self
+end
+
+function Previewer.vterm:parse_entry(entry_str)
+  local entry = Previewer.vterm.super.parse_entry(self, entry_str)
+  local spec = self.previewer:cmdline() ---@type fzf-lua.preview.spec
+  assert(type(spec) == "table" and spec.fn, "invalid vterm previewer spec")
+  local preview = assert(self.win.layout.preview)
+  -- usually `{} {q}` is used as most common field index
+  local res = spec.fn({ entry_str, FzfLua.get_info().query }, preview.height, preview.width)
+  if spec.type == "cmd" then
+    local cmdspec = type(res) == "table" and res or { cmd = { "sh", "-c", res }, env = nil }
+    local cmd = type(cmdspec.cmd) == "table" and cmdspec.cmd or { "sh", "-c", cmdspec.cmd }
+    return { cmd = cmd, cmd_opts = { env = cmdspec.env }, line = entry.line, col = entry.col }
+  else
+    assert(type(res) == "table", res)
+    return { content = res, open_term = true, line = entry.line, col = entry.col }
+  end
 end
 
 return Previewer

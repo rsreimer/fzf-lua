@@ -33,7 +33,7 @@ end
 ---@return fzf-lua.config.Resolved
 function Previewer.base:setup_opts(opts)
   -- Set the preview command line
-  opts.preview = self:cmdline()
+  opts.preview = require("fzf-lua.previewer").normalize_spec(self:cmdline(), self.opts)
   opts.preview_offset = self:_preview_offset()
   opts.fzf_opts["--preview-window"] = self:preview_window()
   opts.fzf_opts["--delimiter"] = self:fzf_delimiter()
@@ -45,6 +45,7 @@ function Previewer.base:close()
 end
 
 ---@diagnostic disable-next-line: unused
+---@return fzf-lua.preview.spec
 function Previewer.base:cmdline(_)
   return ""
 end
@@ -309,7 +310,7 @@ end
 
 function Previewer.bat_async:cmdline(o)
   o = o or {}
-  local act = shell.stringify_cmd(function(items, fzf_lines)
+  local act = function(items, fzf_lines)
     FzfLua.get_info().query = items[2] or ""
     if items[1] == "" then return utils.shell_nop() end
     local filepath, entry, errcmd = self:parse_entry_and_verify(items[1])
@@ -332,8 +333,8 @@ function Previewer.bat_async:cmdline(o)
       line_range,
       libuv.shellescape(filepath))
     return cmd
-  end, self.opts, "{} {q}")
-  return act
+  end
+  return { fn = act, type = "cmd", field_index = "{} {q}" }
 end
 
 ---@class fzf-lua.previewer.GitDiff : fzf-lua.previewer.Fzf,{}
@@ -371,7 +372,7 @@ end
 
 function Previewer.git_diff:cmdline(o)
   o = o or {}
-  local act = shell.stringify_cmd(function(items, fzf_lines, fzf_columns)
+  local act = function(items, fzf_lines, fzf_columns)
     if not items or utils.tbl_isempty(items) then
       utils.warn("shell error while running preview action.")
       return utils.shell_nop()
@@ -438,8 +439,8 @@ function Previewer.git_diff:cmdline(o)
     -- cmd = string.format("%s %s %s", table.concat(setenv, " "), cmd, pager)
     cmd = string.format("%s %s", cmd, self.pager or "")
     return { cmd = cmd, env = env }
-  end, self.opts, "{}")
-  return act
+  end
+  return { fn = act, type = "cmd", field_index = "{} {q}" }
 end
 
 ---@class fzf-lua.previewer.fzf.ManPages : fzf-lua.previewer.Fzf,{}
@@ -456,13 +457,13 @@ end
 
 function Previewer.man_pages:cmdline(o)
   o = o or {}
-  local act = shell.stringify_cmd(function(items)
+  local act = function(items)
     if not items[1] then return utils.shell_nop() end
     local manpage = require("fzf-lua.providers.manpages").manpage_sh_arg(items[1])
     local cmd = self.cmd:format(manpage)
     return cmd
-  end, self.opts, "{}")
-  return act
+  end
+  return { fn = act, type = "cmd", field_index = "{}" }
 end
 
 ---@class fzf-lua.previewer.fzf.HelpTags : fzf-lua.previewer.Fzf,{}
@@ -483,7 +484,7 @@ end
 
 function Previewer.help_tags:cmdline(o)
   o = o or {}
-  local act = shell.stringify_cmd(function(items)
+  local act = function(items)
     if not items[1] then return utils.shell_nop() end
     local vimdoc = items[1]:match(string.format("[^%s]+$", utils.nbsp))
     assert(vimdoc, "help_tags previewer: unable to parse help file name")
@@ -502,8 +503,8 @@ function Previewer.help_tags:cmdline(o)
       end
     end
     return cmd
-  end, self.opts, "{}")
-  return act
+  end
+  return { fn = act, type = "cmd", field_index = "{}" }
 end
 
 Previewer.nvim_server = Previewer.cmd_async:extend()
@@ -532,35 +533,33 @@ local function make_screenshot(screenshot, addr, lines, columns)
     end
     return utils.rpcexec(addr, "nvim_exec_lua", [[
       local lines, columns, screenshot = ...
-      return vim._with({ go = { lines = lines, columns = columns } }, function()
+      return vim._with({ o = { lines = lines, columns = columns } }, function()
         vim.api.nvim__screenshot(screenshot)
       end)
     ]], { lines, columns, screenshot })
   end
-  local jobstart = _G.fzf_pty_spawn or vim.fn.jobstart
   local nvim_bin = os.getenv("FZF_LUA_NVIM_BIN") or vim.v.progpath
-  local chan = jobstart({ nvim_bin, "--server", addr, "--remote-ui" }, {
+  local chan = vim.fn.jobstart({ nvim_bin, "--server", addr, "--remote-ui" }, {
     pty = true,
     height = lines,
     width = columns,
     env = {
       TERM = "xterm-256color",
-      VIMRUNTIME = vim.env.VIMRUNTIME,
+      VIMRUNTIME = os.getenv("VIMRUNTIME"),
     },
     on_stdout = function(chan0)
       if closing then return end
       closing = true
       vim.defer_fn(function() utils.rpcexec(addr, "nvim__screenshot", screenshot) end, 10)
-      if not _G.fzf_pty_spawn then vim.defer_fn(function() vim.fn.jobstop(chan0) end, 20) end
+      vim.defer_fn(function() vim.fn.jobstop(chan0) end, 20)
     end,
   })
-  if not _G.fzf_pty_spawn then return vim.fn.jobpid(chan) end
-  return chan
+  return vim.fn.jobpid(chan)
 end
 
 function Previewer.nvim_server:cmdline(_)
   local function parse_entry(e) return e and e:match("%((.-)%)") or nil end
-  return FzfLua.shell.stringify_cmd(function(items, lines, columns)
+  local act = function(items, lines, columns)
     FzfLua.get_info().query = items[2] or ""
     local addr = parse_entry(items[1])
     if not addr then return "true" end
@@ -576,7 +575,8 @@ function Previewer.nvim_server:cmdline(_)
         or ("sleep %s;"):format(50 / 1000)
     local pager = vim.fn.executable("tail") == 1 and "tail -n+2 %s" or "cat %s"
     return wait .. pager:format(screenshot)
-  end, self.opts, "{} {q}")
+  end
+  return { fn = act, type = "cmd", field_index = "{} {q}" }
 end
 
 return Previewer

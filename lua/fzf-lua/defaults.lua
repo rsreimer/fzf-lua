@@ -115,6 +115,8 @@ end
 ---Debounce time (milliseconds) for displaying the preview buffer in the builtin previewer.
 ---@field delay? integer
 ---@field winopts fzf-lua.config.PreviewerWinopts Window options for the builtin previewer.
+---(skim only option), allow preview process run in pty
+---@field pty? boolean
 
 ---missing fields are injected later, not sure how to tell luals about it
 ---@class fzf-lua.config.Defaults: fzf-lua.config.Base,{}
@@ -1936,11 +1938,11 @@ M.defaults.serverlist            = {
   _screenshot = vim.fn.tempname(),
   previewer = { _ctor = previewers.fzf.nvim_server },
   _resume_reload = true, -- avoid list contain killed server unhide
-  keymap = { fzf = { resize = "refresh-preview" } },
   actions = {
     ["enter"] = actions.serverlist_connect,
     ["ctrl-o"] = { fn = actions.serverlist_spawn, reload = true, header = "spawn" },
     ["ctrl-x"] = { fn = actions.serverlist_kill, reload = true, header = "kill" },
+    ["ctrl-r"] = { fn = function() end, reload = true, header = "reload" },
   },
 }
 
