@@ -377,6 +377,12 @@ Type: `number`, Default: `0.85`
 
 Height of the fzf-lua float, between 0-1 will represent percentage of `vim.o.lines` (1: max height), if >= 1 will use fixed number of lines.
 
+#### globals.winopts.path_shorten
+
+Type: `boolean|integer`, Default: `nil`
+
+Use extmarks with conceal to visually shorten paths while keeping full paths for actions/preview. Set to `true` for 1 char, or a number for custom length. NOTE: Unlike the picker `path_shorten` option, this doesn't modify the actual entry text, making it compatible with `combine()`. NOTE: This option has no effect when using `fzf-tmux` as the fzf window runs in a tmux popup outside of Neovim where extmarks are not available.
+
 #### globals.winopts.preview.border
 
 Type: `any`, Default: `"rounded"`
@@ -1265,7 +1271,7 @@ Lua patterns of files to ignore.
 
 ##### files.line_query
 
-Type: `boolean|fun(query: string) -> multi<...>`, Default: `nil`
+Type: `boolean|fun(query: string) -> (string?,string?)`, Default: `nil`
 
 Parse the query for a line number suffix, e.g. `file.lua:10` will open `file.lua` at line 10.
 
@@ -1361,14 +1367,15 @@ Git diff (changed files vs a git ref).
 
 ##### git_diff.ref
 
-Type: `string`, Default: `"HEAD"`
+Type: `string|string[]`, Default: `nil`
 
-Git reference to compare against.
+Git reference(s) to compare against.
 
-##### git_diff.compare_against
+##### git_diff.ref1
 
-Type: `string`, Default: `""`
+Type: `string`, Default: `nil`
 
+`compare_against` was renamed to `ref1`
 Git reference used as the base for the comparison.
 
 #### git_files

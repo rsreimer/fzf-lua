@@ -618,30 +618,51 @@ function Previewer.base:scroll(direction)
   self.win:update_preview_scrollbar()
   self:update_render_markdown()
   self:update_ts_context()
-  self:copy_extmarks()
 end
 
 -- https://github.com/kevinhwang91/nvim-bqf/blob/b51a37fcd808edafd52511458467c8c9a701ea8d/lua/bqf/preview/extmark.lua#L20
-function Previewer.base:copy_extmarks()
-  -- copy extmarks from source window to preview window
-  if not self.win or not self.win:validate_preview() or not self.loaded_entry or not self.loaded_entry.bufnr then return end
-  self.ns_extmarks = self.ns_extmarks or api.nvim_create_namespace("fzf-lua.preview.extmarks")
-  local src_bufnr = self.loaded_entry.bufnr
-  local dst_bufnr = self.preview_bufnr
-  local ns = self.ns_extmarks
-  local win = self.win.preview_winid
-  local topline = fn.line("w0", win)
-  local botline = fn.line("w$", win)
-  api.nvim_buf_clear_namespace(dst_bufnr, ns, topline, botline)
-  for _, n in pairs(api.nvim_get_namespaces()) do
-    local extmarks = api.nvim_buf_get_extmarks(src_bufnr, n, { topline - 1, 0 },
-      { botline - 1, -1 },
-      { details = true })
-    for _, m in ipairs(extmarks) do
-      local _, row, col, details = unpack(m) ---@cast details -?
+-- copy extmarks from src_buf to buf
+---@param src_buf integer
+---@param buf integer
+---@param win integer
+---@param topline integer 0-based
+---@param botline integer 0-based
+---@param ns integer
+local copy_extmarks = function(src_buf, buf, win, topline, botline, ns)
+  local src_win = fn.win_findbuf(src_buf)[1]
+  local src_leftcol = src_win and api.nvim_win_call(src_win, fn.winsaveview).leftcol or nil
+  -- virt_text is related to screen https://github.com/neovim/neovim/issues/14050
+  local no_virt_text = api.nvim_win_call(win, fn.winsaveview).leftcol ~= src_leftcol
+  api.nvim_buf_clear_namespace(buf, ns, topline, botline)
+  local extmarks = api.nvim_buf_get_extmarks(src_buf, -1, { topline, 0 }, { botline, -1 },
+    { details = true })
+  local namespaces = api.nvim_get_namespaces()
+  local ignore = {}
+  if namespaces["snacks.image"] then ignore[namespaces["snacks.image"]] = true end
+  for _, m in ipairs(extmarks) do
+    local _, row, col, details = unpack(m) ---@cast details -?
+    if not ignore[details.ns_id] then
       details.ns_id = nil
-      pcall(api.nvim_buf_set_extmark, dst_bufnr, ns, row, col, details)
+      if no_virt_text and details.virt_text then details.virt_text = nil end
+      pcall(api.nvim_buf_set_extmark, buf, ns, row, col, details)
     end
+  end
+end
+
+---@return fun()
+function Previewer.base:copy_extmarks()
+  self.ns_extmarks = self.ns_extmarks or api.nvim_create_namespace("fzf-lua.preview.extmarks")
+  api.nvim_set_decoration_provider(self.ns_extmarks, {
+    on_win = function(_, win, buf, topline, botline)
+      if win ~= self.win.preview_winid then return end
+      local src_buf = self.loaded_entry and self.loaded_entry.bufnr
+      if not src_buf or not api.nvim_buf_is_valid(src_buf) then return end
+      copy_extmarks(src_buf, buf, win, topline, botline, self.ns_extmarks)
+      return false
+    end,
+  })
+  return function()
+    api.nvim_set_decoration_provider(self.ns_extmarks, {})
   end
 end
 
@@ -1018,6 +1039,9 @@ function Previewer.buffer_or_file:populate_preview_buf(entry_str)
     entry.filetype = vim.bo[entry.bufnr].filetype
     local lines = api.nvim_buf_get_lines(entry.bufnr, 0, -1, false)
     local tmpbuf = reuse_buf or self:get_tmp_buffer()
+    vim.bo[tmpbuf].expandtab = vim.bo[entry.bufnr].expandtab
+    vim.bo[tmpbuf].shiftwidth = vim.bo[entry.bufnr].shiftwidth
+    vim.bo[tmpbuf].tabstop = vim.bo[entry.bufnr].tabstop
     api.nvim_buf_set_lines(tmpbuf, 0, -1, false, lines)
     -- terminal buffers use minimal window style (2nd arg)
     self:set_preview_buf(tmpbuf, entry.terminal)
@@ -1526,7 +1550,6 @@ function Previewer.buffer_or_file:preview_buf_post(entry, min_winopts)
         self:update_render_markdown()
         self:update_ts_context()
         self:attach_snacks_image_inline()
-        vim.schedule(function() self:copy_extmarks() end)
       end
       -- for attach_snacks_image_{inline,buf}
       -- https://github.com/folke/snacks.nvim/pull/1615

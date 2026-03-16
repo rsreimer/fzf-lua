@@ -72,6 +72,8 @@ end
 ---@field fullscreen? boolean
 ---Use treesitter highlighting in fzf's main window. NOTE: Only works for file-like entries where treesitter parser exists and is loaded for the filetype.
 ---@field treesitter? fzf-lua.config.TreesitterWinopts|boolean
+---Use extmarks with conceal to visually shorten paths while keeping full paths for actions/preview. Set to `true` for 1 char, or a number for custom length. NOTE: Unlike the picker `path_shorten` option, this doesn't modify the actual entry text, making it compatible with `combine()`. NOTE: This option has no effect when using `fzf-tmux` as the fzf window runs in a tmux popup outside of Neovim where extmarks are not available.
+---@field path_shorten? boolean|integer
 ---Callback after the creation of the fzf-lua main terminal window.
 ---@field on_create? fun(e: { winid?: integer, bufnr?: integer })
 ---Callback after closing the fzf-lua window.
@@ -555,6 +557,7 @@ M.defaults.global = vim.tbl_deep_extend("force", M.defaults.files, {
     end)
     return {
       { "files",   desc = "Files" },
+      -- { "blines",  desc = "blines", prefix = "/" },
       { "buffers", desc = "Bufs", prefix = "$" },
       doc_sym_supported and {
         "lsp_document_symbols",
@@ -589,10 +592,11 @@ M.defaults.global = vim.tbl_deep_extend("force", M.defaults.files, {
       },
     }
   end,
-  fzf_opts          = { ["--nth"] = false, ["--with-nth"] = false },
+  fzf_opts          = { ["--delimiter"] = "[\t]", ["--with-nth"] = ".." },
   winopts           = { preview = { winopts = { cursorline = true } } },
   _ctx              = { includeBuflist = true }, -- we include a buffer picker
   _fzf_nth_devicons = false,
+  _treesitter       = true,
 })
 
 
@@ -662,15 +666,18 @@ M.defaults.git                   = {
   },
   ---Git diff (changed files vs a git ref).
   ---@class fzf-lua.config.GitDiff: fzf-lua.config.GitBase
-  ---Git reference to compare against.
-  ---@field ref? string
+  ---Git reference(s) to compare against.
+  ---@field ref? string|string[]
+  -- `compare_against` was renamed to `ref1`
   ---Git reference used as the base for the comparison.
-  ---@field compare_against? string
+  ---@field ref1? string
+  ---Fzf cursor start position for ctrl-q git_commits
+  ---@field _pos? number
   diff = {
-    cmd               = "git --no-pager diff --name-only {compare_against} {ref}",
-    ref               = "HEAD",
-    compare_against   = "",
-    preview           = "git diff {compare_against} {ref} {file}",
+    cmd               = "git --no-pager diff --name-only {ref1} {ref}",
+    ref               = nil,
+    ref1              = nil,
+    preview           = "git diff {ref1} {ref} {file}",
     preview_pager     = M._preview_pager_fn,
     multiprocess      = 1, ---@type integer|boolean
     _type             = "file",
@@ -679,7 +686,22 @@ M.defaults.git                   = {
     fzf_opts          = { ["--multi"] = true },
     _fzf_nth_devicons = true,
     _actions          = function() return M.globals.actions.files end,
-    _headers          = { "cwd" },
+    _headers          = { "cwd", "actions" },
+    actions           = {
+      ["ctrl-q"] = {
+        fn = function(_, _o)
+          local o = vim.deepcopy(_o.__call_opts)
+          if o._pos then
+            o._fzf_cli_args = o._fzf_cli_args or {}
+            table.insert(o._fzf_cli_args, "--bind="
+              .. FzfLua.libuv.shellescape(string.format("load:+pos(%d)", o._pos)))
+          end
+          FzfLua.git_commits(o)
+        end,
+        reuse = true,
+        header = "git commits"
+      },
+    },
   },
   ---Git diff hunks (changed lines).
   ---@class fzf-lua.config.GitHunks: fzf-lua.config.GitBase
@@ -713,6 +735,19 @@ M.defaults.git                   = {
     actions       = {
       ["enter"]  = actions.git_checkout,
       ["ctrl-y"] = { fn = actions.git_yank_commit, exec_silent = true },
+      ["ctrl-d"] = {
+        fn = function(s, _o)
+          if not s[1] then return FzfLua.utils.fzf_exit() end
+          local o = vim.deepcopy(_o.__call_opts)
+          o.ref = s[1]:match("[^ ]+")
+          o.ref1 = o.ref .. "~"
+          o._pos = tonumber(s[2])
+          FzfLua.git_diff(o)
+        end,
+        header = "git diff",
+        exec_silent = true,
+        field_index = "{} $FZF_POS",
+      },
     },
     fzf_opts      = { ["--no-multi"] = true },
     _headers      = { "actions", "cwd" },
@@ -812,6 +847,7 @@ M.defaults.git                   = {
   },
   ---Git stashes.
   ---@class fzf-lua.config.GitStash: fzf-lua.config.GitBase
+  ---@field search? string
   stash = {
     cmd           = "git --no-pager stash list",
     preview       = "git --no-pager stash show --patch --color {1}",
@@ -1180,6 +1216,7 @@ M.defaults.blines                = vim.tbl_deep_extend("force", M.defaults.lines
 ---@class fzf-lua.config.Treesitter: fzf-lua.config.Base
 ---Buffer number to search, default: current buffer.
 ---@field bufnr? integer
+---@field node_filter? function
 M.defaults.treesitter            = {
   previewer        = M._default_previewer_fn,
   file_icons       = false, ---@type integer|boolean

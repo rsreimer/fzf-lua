@@ -384,7 +384,7 @@ M.fzf = function(contents, opts)
       if not tonumber(args[1]) then return end
       -- NOTE: do not use local ref `fzf_win` as it my change on resume (#2255)
       local winobj = utils.fzf_winobj()
-      if not winobj then return end
+      if not winobj or winobj.closing then return end
       return string.format("change-preview-window(%s)", winobj:normalize_preview_layout().str)
     end)
   end
@@ -834,6 +834,22 @@ M.set_header = function(opts)
       hdr_txt_col = opts.hls.header_text,
       val = function()
         return opts.search and #opts.search > 0 and opts.search
+      end,
+    },
+    ref = {
+      hdr_txt_opt = "ref_header_txt",
+      hdr_txt_str = "ref: ",
+      hdr_txt_col = opts.hls.header_text,
+      val = function()
+        return opts.ref and #opts.ref > 0 and opts.ref
+      end,
+    },
+    ref1 = {
+      hdr_txt_opt = "ref1_header_txt",
+      hdr_txt_str = "ref1: ",
+      hdr_txt_col = opts.hls.header_text,
+      val = function()
+        return opts.ref1 and #opts.ref1 > 0 and opts.ref1
       end,
     },
     lsp_query = {
