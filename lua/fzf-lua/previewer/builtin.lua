@@ -227,7 +227,7 @@ function Previewer.base:new(o, opts)
   -- since show_document reuses buffers and I couldn't find a better way
   -- to determine if the destination buffer was listed prior to the jump
   local is_listed = function(b) return fn.buflisted(b) == 1 end ---@type fun(b: integer): boolean
-  self.listed_buffers = utils.list_to_map(vim.tbl_map(is_listed, api.nvim_list_bufs()))
+  self.listed_buffers = vim.tbl_map(is_listed, api.nvim_list_bufs())
   return self
 end
 
@@ -1032,7 +1032,7 @@ function Previewer.buffer_or_file:populate_preview_buf(entry_str)
     fn.jobstop(self._job_id)
     self._job_id = nil
   end
-  if entry.bufnr and api.nvim_buf_is_loaded(entry.bufnr) then
+  if entry.bufnr and api.nvim_buf_is_loaded(entry.bufnr) and vim.bo[entry.bufnr].filetype ~= "image" then
     -- WE NO LONGER REUSE THE CURRENT BUFFER
     -- this changes the buffer's 'getbufinfo[1].lastused'
     -- which messes up our `buffers()` sort
@@ -1111,6 +1111,10 @@ function Previewer.buffer_or_file:populate_preview_buf(entry_str)
         local fs_stat = entry.path and uv.fs_stat(entry.path)
         if not fs_stat then
           lines = { string.format("Unable to stat file %s", entry.path) }
+        elseif fs_stat.type == "directory" then
+          local cmd = utils._if_win({ "cmd.exe", "/c", "dir" }, { "ls", "-la" })
+          table.insert(cmd, entry.path)
+          lines, _ = utils.io_systemlist(cmd)
         elseif fs_stat.size > 0 and utils.perl_file_is_binary(entry.path) then
           lines = { "Preview is not supported for binary files." }
         elseif tonumber(self.limit_b) > 0 and fs_stat.size > self.limit_b then
@@ -1449,6 +1453,7 @@ function Previewer.buffer_or_file:set_cursor_hl(entry)
 
   -- If called from tags previewer, can happen when using ctags cmd
   -- "ctags -R --c++-kinds=+p --fields=+iaS --extras=+q --excmd=combine"
+  -- vim.regex is always magic, see `:help vim.regex`
   regex = regex and #regex > 0 and utils.regex_to_magic(regex)
       or entry.ctag and utils.ctag_to_magic(entry.ctag)
 
@@ -1477,9 +1482,7 @@ function Previewer.buffer_or_file:set_cursor_hl(entry)
     -- If regex is available (grep/lgrep), match on current line
     if regex and hls.search then
       local regex_start, regex_end
-      -- vim.regex is always magic, see `:help vim.regex`
-      ---@diagnostic disable-next-line: param-type-mismatch
-      local reg = vim.F.npcall(vim.regex, regex)
+      local reg = utils.vim_regex(regex, { silent = true })
       if reg then
         if regex ~= regex:lower() then
           regex_start, regex_end = reg:match_line(buf, lnum - 1, col - 1)
@@ -1487,10 +1490,6 @@ function Previewer.buffer_or_file:set_cursor_hl(entry)
           local line = api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1] or ""
           regex_start, regex_end = reg:match_str(line:sub(col):lower())
         end
-      elseif self.opts.silent ~= true then
-        utils.warn(
-          [[Unable to init vim.regex with "%s", %s. . Add 'silent=true' to hide this message.]],
-          regex, reg)
       end
       if regex_start and regex_end then
         extmark = api.nvim_buf_set_extmark(buf, self.ns_previewer, lnum - 1, regex_start + col - 1, {
@@ -1553,7 +1552,7 @@ function Previewer.buffer_or_file:preview_buf_post(entry, min_winopts)
       end
       -- for attach_snacks_image_{inline,buf}
       -- https://github.com/folke/snacks.nvim/pull/1615
-      if vim.b[self.preview_bufnr].snacks_image_attached then
+      if self.preview_bufnr and vim.b[self.preview_bufnr].snacks_image_attached then
         utils.wo[self.win.preview_winid][0].winblend = 0
       end
     end
@@ -1762,7 +1761,9 @@ function Previewer.tags:set_cursor_hl(entry)
     -- didn't reload the buffer (same file)
     api.nvim_win_set_cursor(0, { 1, 0 })
     fn.clearmatches()
-    local ctag = assert(entry.ctag)
+    local ctag = utils.ctag_to_magic(assert(entry.ctag))
+    -- test the regex so we can alert the user of the search fail
+    if not utils.vim_regex(ctag, self.opts) then return end
     fn.search(ctag, "W")
     if self.win.hls.search then
       fn.matchadd(self.win.hls.search, ctag)

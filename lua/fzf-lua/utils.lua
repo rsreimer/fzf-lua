@@ -216,6 +216,20 @@ function M.is_darwin()
   return uv.os_uname().sysname == "Darwin"
 end
 
+---@param re string
+---@param opts table
+---@return vim.regex?
+function M.vim_regex(re, opts)
+  local ok, regex = pcall(vim.regex, re)
+  if ok then return regex --[[@as vim.regex]] end
+  if not ok and (not opts or opts.silent ~= true) then
+    M.warn(
+      [[Unable to init vim.regex with "%s", %s. . Add 'silent=true' to hide this message.]],
+      re, regex)
+    return nil
+  end
+end
+
 ---@param str string
 ---@return string
 function M.rg_escape(str)
@@ -230,16 +244,34 @@ function M.rg_escape(str)
   return ret
 end
 
+---@param str string
+---@return string
 function M.regex_to_magic(str)
   -- Convert regex to "very magic" pattern, basically a regex
   -- with special meaning for "%=&<>~", `:help /magic`
-  return [[\v]] .. str:gsub("[%%=&@<>~]", function(x)
-    return "\\" .. x
-  end)
+  return [[\v]] .. str:gsub("([%%=&<>])", [[\%1]])
+      -- searching for @ in very magic needs [@]
+      :gsub("([@])", "[%1]")
 end
 
+---@param str string
+---@return string
+function M.ctag_escape(str)
+  -- unescape already escaped ctags slashes
+  -- '\\' -> '\'
+  -- '\/' -> '/'
+  str = str:gsub([[\\]], [[\]])
+  str = str:gsub([[\/]], [[/]])
+  -- regex escape
+  return (M.rg_escape(str)
+    -- unescape ^$ if were positioned in start/end respectively
+    :gsub([[^\^]], "^"):gsub([[\$$]], "$"))
+end
+
+---@param str string
+---@return string
 function M.ctag_to_magic(str)
-  return [[\v]] .. str:gsub("[=&@<>{%(%)%.%[]", function(x) return [[\]] .. x end)
+  return M.regex_to_magic(M.ctag_escape(str))
 end
 
 function M.sk_escape(str)
@@ -979,10 +1011,6 @@ function M.load_profiles(profiles, silent)
   profiles = type(profiles) == "table" and profiles
       or type(profiles) == "string" and { profiles }
       or {}
-  -- If the use specified only the "hide" profile, inherit the defaults
-  if #profiles == 1 and profiles[1] == "hide" then
-    table.insert(profiles, 1, "default")
-  end
   for _, profile in ipairs(profiles) do
     -- backward compat, renamed "borderless_full" > "borderless-full"
     if profile == "borderless_full" then profile = "borderless-full" end
@@ -1279,7 +1307,13 @@ end
 ---@return integer exit_code (0: success)
 function M.io_systemlist(cmd)
   if vim.system ~= nil then -- nvim 0.10+
-    local proc = vim.system(cmd):wait()
+    local ok, proc_or_err = pcall(vim.system, cmd)
+    if not ok then
+      -- Command doesn't exist or other error occurred
+      -- Return the error message in the output so callers can display it
+      return { tostring(proc_or_err) }, -1
+    end
+    local proc = proc_or_err:wait()
     local output = (type(proc.stderr) == "string" and proc.stderr or "")
         .. (type(proc.stdout) == "string" and proc.stdout or "")
     return vim.split(output, "\n", { trimempty = true }), proc.code
@@ -1293,10 +1327,15 @@ end
 ---@return integer exit_code (0: success)
 function M.io_system(cmd)
   if vim.system ~= nil then -- nvim 0.10+
-    local proc = vim.system(cmd):wait()
-    local output = (type(proc.stderr) == "string" and proc.stderr or "")
-        .. (type(proc.stdout) == "string" and proc.stdout or "")
-    return output, proc.code
+    local ok, proc_or_err = pcall(function() return vim.system(cmd):wait() end)
+    if not ok then
+      -- Command doesn't exist or other error occurred
+      -- Return the error message so callers can display it
+      return tostring(proc_or_err), -1
+    end
+    local output = (type(proc_or_err.stderr) == "string" and proc_or_err.stderr or "")
+        .. (type(proc_or_err.stdout) == "string" and proc_or_err.stdout or "")
+    return output, proc_or_err.code
   else
     return vim.fn.system(cmd), vim.v.shell_error
   end
