@@ -249,7 +249,7 @@ end
 function M.regex_to_magic(str)
   -- Convert regex to "very magic" pattern, basically a regex
   -- with special meaning for "%=&<>~", `:help /magic`
-  return [[\v]] .. str:gsub("([%%=&<>])", [[\%1]])
+  return [[\v\C]] .. str:gsub("([%%=&<>])", [[\%1]])
       -- searching for @ in very magic needs [@]
       :gsub("([@])", "[%1]")
 end
