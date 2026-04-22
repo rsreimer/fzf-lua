@@ -195,6 +195,8 @@ function M.raw_fzf(contents, fzf_cli_args, opts)
       -- the query.
       -- utils.feed_keys_termcodes("i")
     else
+      -- TODO(#2683):
+      -- utils.feed_keys_termcodes("i")
       vim.cmd [[startinsert]]
     end
   end

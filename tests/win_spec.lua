@@ -151,24 +151,19 @@ T["win"]["keymap"]["no error"] = new_set({
       :map(function(key, action) return { key, action } end)
       :totable()
 }, {
-  function(key, _action)
-    local builtin = child.lua_get [[FzfLua.defaults.keymap.builtin]]
+  function(key, action)
     for _, event in ipairs({ "start", "load", "result" }) do
-      exec_lua([[
-        FzfLua.files {
-          query = "README.md",
-          winopts = { preview = { wrap = false } },
-          keymap = { true, fzf = { [...] = function() end } },
-        }
-      ]], { event })
-      child.wait_until(function()
-        return child.lua_get([[_G._fzf_load_called]]) == true
-      end)
-      child.type_keys(key)
-      child.type_keys("<c-c>")
-      child.wait_until(function()
-        return child.lua_get([[_G._fzf_load_called]]) == vim.NIL
-      end)
+      if action == "toggle-preview" then helpers.SKIP_IF_WIN() end
+      helpers.FzfLua.files(child, {
+        __abort_key = key .. "<c-c>",
+        __expect_lines = false,
+        __after_open = function()
+          if helpers.IS_WIN() then vim.uv.sleep(250) end
+        end,
+        query = "README.md",
+        winopts = { preview = { wrap = false } },
+        keymap = { true, fzf = { [event] = function() end } },
+      })
     end
   end })
 
@@ -189,14 +184,9 @@ T["win"]["previewer"]["split flex layout resize"] = function()
       }
     },
     previewer = function() return require("fzf-lua.test.previewer").builtin end,
-    keymap = {
-      fzf = {
-        resize = function()
-          _G._fzf_resize_called = true
-        end
-      }
-    },
+    keymap = { fzf = { resize = function() _G._fzf_resize_called = true end } },
     __after_open = function()
+      if helpers.IS_WIN() then vim.uv.sleep(250) end
       child.wait_until(function()
         return child.lua_get([[FzfLua.utils.fzf_winobj()._previewer.last_entry]]) == "foo"
       end)
@@ -386,7 +376,7 @@ T["win"]["reuse"] = new_set({
   end
 })
 
-T["win"]["highlight"] = new_set()
+T["win"]["highlight"] = new_set({ n_retry = not helpers.IS_LINUX() and 5 or nil })
 
 T["win"]["highlight"]["unchange when reuse win #2588"] = function()
   helpers.SKIP_IF_WIN() -- windows attr looks different

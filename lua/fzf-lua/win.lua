@@ -866,12 +866,10 @@ function FzfWin:redraw_main()
   }, self.layout.fzf)
 
   if self:validate() then
-    if self._previewer
-        and self._previewer.clear_on_redraw
-        and self._previewer.clear_preview_buf
-        and self._previewer.clear_cached_buffers then
-      self._previewer:clear_preview_buf(true)
-      self._previewer:clear_cached_buffers()
+    local prev = self._previewer
+    if prev and prev.clear_on_redraw then
+      if prev.clear_preview_buf then prev:clear_preview_buf(true) end
+      if prev.bcache then prev.bcache:clear() end
     end
     utils.win_set_config(self.fzf_winid, winopts)
   else
@@ -1168,6 +1166,25 @@ local restore_altbuf = function(buf)
   end
 end
 
+local stopinsert = function(ctx)
+  _G.fzf_lua_stopinsert_hack = nil
+  if not (ctx.mode == "nt" and api.nvim_get_mode() ~= "nt") then return end
+  vim.cmd "stopinsert"
+  local pat = "FzfLuaStopInsertHack"
+  _G.fzf_lua_stopinsert_hack = function(cb)
+    api.nvim_create_autocmd("User", { pattern = pat, once = true, callback = cb })
+  end
+  api.nvim_create_autocmd("ModeChanged", {
+    pattern = "*:nt",
+    once = true,
+    callback = function()
+      -- nvim_get_mode don't get correct mode without schedule_wrap
+      vim.schedule_wrap(api.nvim_exec_autocmds)("User", { pattern = pat, modeline = false })
+      _G.fzf_lua_stopinsert_hack = nil
+    end,
+  })
+end
+
 ---@param fzf_bufnr? integer
 ---@param hide? boolean
 function FzfWin:close(fzf_bufnr, hide)
@@ -1181,7 +1198,7 @@ function FzfWin:close(fzf_bufnr, hide)
   -- switching from a term win to another term win preserves terminal mode
   -- even if the target window was in normal terminal mode (#2054 #2419)
   local ctx = utils.__CTX() or {}
-  if ctx.mode == "nt" then vim.cmd "stopinsert" end
+  stopinsert(ctx)
   if self.fzf_winid and api.nvim_win_is_valid(self.fzf_winid) then
     -- restore the original last window
     restore_lastwin(ctx.winid, ctx.last_winid)
