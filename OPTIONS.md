@@ -1757,6 +1757,12 @@ Colorize option values.
 
 File history (output of `:oldfiles`).
 
+##### oldfiles.shada_file
+
+Type: `string`, Default: `nil`
+
+Optional shada file to read, see `:help shada`
+
 ##### oldfiles.stat_file
 
 Type: `boolean`, Default: `true`
