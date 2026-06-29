@@ -120,7 +120,7 @@ local GREP_PERL_REGEXP = utils.is_darwin() and "--extended-regexp" or "--perl-re
 ---@field scrolloff? integer
 ---Debounce time (milliseconds) for displaying the preview buffer in the builtin previewer.
 ---@field delay? integer
----@field winopts fzf-lua.config.PreviewerWinopts Window options for the builtin previewer.
+---@field winopts? fzf-lua.config.PreviewerWinopts Window options for the builtin previewer.
 ---(skim only option), allow preview process run in pty
 ---@field pty? boolean
 
@@ -780,9 +780,13 @@ M.defaults.git = {
   },
   ---Git commits (buffer).
   ---@class fzf-lua.config.GitBcommits: fzf-lua.config.GitBase
+  ---Follow the buffer's history across renames.
+  ---@field follow? boolean
   bcommits = {
     cmd           = [[git log --color --pretty=format:"%C(yellow)%h%Creset ]]
         .. [[%Cgreen(%><(12)%cr%><|(12))%Creset %s %C(blue)<%an>%Creset" -- {file}]],
+    -- When true, follow the buffer's history across renames.
+    follow        = false,
     preview       = "git show --color {1} -- {file}",
     preview_pager = M._preview_pager_fn,
     actions       = {
