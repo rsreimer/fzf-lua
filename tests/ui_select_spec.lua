@@ -53,6 +53,7 @@ end
 local function open_picker(items, preview_lines, ui_opts)
   ---@diagnostic disable-next-line: redefined-local
   exec_lua(function(items, preview_lines, ui_opts)
+    _G._ui_select_called = nil
     _G._ui_select_choice = nil
     _G._ui_select_errors = nil
     local buf = vim.api.nvim_create_buf(false, true)
@@ -62,6 +63,7 @@ local function open_picker(items, preview_lines, ui_opts)
       preview_item = function() return { buf = buf } end,
     })
     local ok, err = pcall(vim.ui.select, items, opts, function(item, idx)
+      _G._ui_select_called = true
       _G._ui_select_choice = { item = item, idx = idx }
     end)
     if not ok then
@@ -147,7 +149,12 @@ T["ui_select"]["abort via esc"] = function()
   register()
   open_picker({ "alpha" }, { "esc-preview" })
   close_picker("<esc>")
-  eq(child.lua_get([[_G._ui_select_choice]]), vim.NIL)
+  child.wait_until(function()
+    return child.lua_get([[_G._ui_select_called]]) == true
+  end, 5000)
+  eq(child.lua_get([[_G._ui_select_called]]), true)
+  eq(child.lua_get([[_G._ui_select_choice.item]]), vim.NIL)
+  eq(child.lua_get([[_G._ui_select_choice.idx]]), vim.NIL)
 end
 
 -- #2795: opts sent once from `lsp_code_actions` (`_OPTS_ONCE`) must be

@@ -290,8 +290,26 @@ M.fzf_wrap = function(cmd, opts, convert_actions)
     local _, err = xpcall(function()
       if type(opts.cb_co) == "function" then opts.cb_co(_co) end
       local selected, exit_code = M.fzf(cmd, opts)
-      -- If aborted (e.g. unhide process kill), do nothing
-      if not exit_code or not selected then return end
+      -- If aborted (e.g. unhide process kill), do nothing. When fzf exits
+      -- via an abort key, dispatch a configured abort action so callers can
+      -- handle cancellation.
+      if not exit_code then return end
+      if not selected then
+        local abort_key
+        if exit_code == 130 and opts.actions then
+          for _, key in ipairs({ "ctrl-c", "ctrl-q", "esc" }) do
+            if opts.actions[key] then
+              abort_key = key
+              break
+            end
+          end
+        end
+        if abort_key then
+          selected = { abort_key }
+        else
+          return
+        end
+      end
       -- Default fzf exit callback acts upon the selected items
       fn_selected = opts.fn_selected or actions.act
       if not fn_selected then return end

@@ -15,6 +15,33 @@ local T = helpers.new_set_with_child(child)
 
 T["actions"] = new_set({ n_retry = not helpers.IS_LINUX() and 5 or nil })
 
+T["actions"]["abort action runs on fzf abort"] = function()
+  reload({ "default" })
+  exec_lua(function()
+    _G._fzf_abort_action_called = nil
+    local core = require("fzf-lua.core")
+    local orig_fzf = core.fzf
+    core.fzf = function()
+      core.fzf = orig_fzf
+      return nil, 130
+    end
+    FzfLua.fzf_exec({ "alpha" }, {
+      actions = {
+        ["ctrl-c"] = function()
+          _G._fzf_abort_action_called = true
+        end,
+        ["esc"] = function()
+          _G._fzf_abort_action_called = "esc"
+        end,
+      },
+    })
+  end)
+  child.wait_until(function()
+    return child.lua_get([[_G._fzf_abort_action_called]]) == true
+  end, 5000)
+  eq(child.lua_get([[_G._fzf_abort_action_called]]), true)
+end
+
 T["actions"]["ui don't freeze on error"] = function()
   helpers.SKIP_IF_NOT_NIGHTLY()
   helpers.SKIP_IF_WIN()

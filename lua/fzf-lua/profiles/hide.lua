@@ -34,31 +34,36 @@ return {
         return opts
       end
       local histfile = opts.fzf_opts and opts.fzf_opts["--history"]
-      opts.winopts = opts.winopts or {}
-      local _on_create = opts.winopts.on_create
-      opts.winopts.on_create = function(e)
-        -- While we can use `keymap.builtin.<esc>` (to hide) this is better
-        -- as it captures the query when execute-silent action is called as
-        -- we add "{q}" as the first field index similar to `--print-query`
-        vim.keymap.set({ "t", "n" }, "<Esc>", function()
-          -- We hide the window first which happens instantly
-          -- and then send <Esc> directly to the term channel
-          fzf.hide()
-          vim.api.nvim_chan_send(vim.bo[e.bufnr].channel, "\027")
-        end, { buffer = e.bufnr, nowait = true })
-        -- Call the users' on_create?
-        if type(_on_create) == "function" then
-          _on_create(e)
+      local has_esc_action = opts.actions["esc"] ~= nil
+      if not has_esc_action then
+        opts.winopts = opts.winopts or {}
+        local _on_create = opts.winopts.on_create
+        opts.winopts.on_create = function(e)
+          -- While we can use `keymap.builtin.<esc>` (to hide) this is better
+          -- as it captures the query when execute-silent action is called as
+          -- we add "{q}" as the first field index similar to `--print-query`
+          vim.keymap.set({ "t", "n" }, "<Esc>", function()
+            -- We hide the window first which happens instantly
+            -- and then send <Esc> directly to the term channel
+            fzf.hide()
+            vim.api.nvim_chan_send(vim.bo[e.bufnr].channel, "\027")
+          end, { buffer = e.bufnr, nowait = true })
+          -- Call the users' on_create?
+          if type(_on_create) == "function" then
+            _on_create(e)
+          end
         end
       end
       ---@diagnostic disable: assign-type-mismatch
-      opts.actions["esc"] = {
-        fn = fzf.actions.dummy_abort,
-        desc = "hide",
-        -- NOTE: we add this so esc action isn't converted in the
-        -- `tbl_map` below preventing fzf history append on esc
-        -- exec_silent = true,
-      }
+      if not has_esc_action then
+        opts.actions["esc"] = {
+          fn = fzf.actions.dummy_abort,
+          desc = "hide",
+          -- NOTE: we add this so esc action isn't converted in the
+          -- `tbl_map` below preventing fzf history append on esc
+          -- exec_silent = true,
+        }
+      end
       for k, act in pairs(opts.actions) do
         act = type(act) == "function" and { fn = act } or act
         act = type(act) == "table" and type(act[1]) == "function"

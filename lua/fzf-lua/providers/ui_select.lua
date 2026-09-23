@@ -163,14 +163,11 @@ M.ui_select = function(items, ui_opts, on_choice)
     _OPTS_ONCE = nil
   end
 
-  -- disable hide profile unless specifically requested, must be set
-  -- prior to `normalize_opts` as the "hide" profile's `enrich` needs
-  -- this to skip setting `<Esc>` to hide (post-merge so that an
-  -- explicit `no_hide=false` sent via `_OPTS_ONCE` is respected)
-  if ui_opts.kind == "codeaction" then
-    -- casues issues with abort as on_choice(nil) won't be called (#2439)
-    opts.no_hide = opts.no_hide == nil and true or opts.no_hide
-  end
+  -- Disable hide profile unless specifically requested. `vim.ui.select`
+  -- callers expect `on_choice(nil, nil)` on cancel; hiding leaves the fzf
+  -- process alive and skips the callback. This must be set prior to
+  -- `normalize_opts` as the "hide" profile's `enrich` checks `no_hide`.
+  opts.no_hide = opts.no_hide == nil and true or opts.no_hide
 
   opts = config.normalize_opts(opts, "ui_select")
   if not opts then return end
