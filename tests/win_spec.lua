@@ -153,12 +153,21 @@ T["win"]["keymap"]["no error"] = new_set({ parametrize = (function()
 end)() }, {
   function(key, action)
     for _, event in ipairs({ "start", "load", "result" }) do
-      if action == "toggle-preview" then helpers.SKIP_IF_WIN() end
       helpers.FzfLua.files(child, {
-        __abort_key = key .. "<c-c>",
+        __no_abort = true,
         __expect_lines = false,
         __after_open = function()
           if helpers.IS_WIN() then vim.uv.sleep(250) end
+          -- Press the key being tested, then give window-affecting actions
+          -- (e.g. toggle-fullscreen) a moment to settle before closing.
+          -- On Windows, sending the action and abort too close together can
+          -- crash the child RPC channel.
+          child.type_keys(key)
+          sleep(100); if helpers.IS_WIN() then sleep(250) end
+          child.type_keys("<c-c>")
+          child.wait_until(function()
+            return child.lua_get([[_G._fzf_lua_on_create]]) == vim.NIL
+          end, 5000)
         end,
         query = "README.md",
         winopts = { preview = { wrap = false } },
@@ -197,7 +206,7 @@ T["win"]["previewer"]["split flex layout resize"] = function()
   child.wait_until(function()
     return child.lua_get([[_G._fzf_resize_called]]) == true
   end)
-  if helpers.IS_WIN() then vim.uv.sleep(250) end
+  sleep(100); if not helpers.IS_LINUX() then sleep(250) end
   child.expect_screen_lines(screen_opts)
   -- abort and wait for winopts.on_close
   child.type_keys("<c-c>")
@@ -318,7 +327,7 @@ T["win"]["relative=cursor"] = function()
     previewer = function() return require("fzf-lua.test.previewer").builtin end,
     __after_open = function()
       child.wait_until(function() return child.lua_get([[_G._fzf_load_called]]) == true end)
-      if not helpers.IS_LINUX() then vim.uv.sleep(250) end
+      sleep(100); if not helpers.IS_LINUX() then sleep(250) end
     end,
   }
   helpers.FzfLua.fzf_exec(child, { "foo", "bar", "baz" }, opts)
@@ -354,7 +363,7 @@ T["win"]["reuse"] = new_set({
       previewer = function() return require("fzf-lua.test.previewer").builtin end,
       __after_open = function()
         child.wait_until(function() return child.lua_get([[_G._fzf_load_called]]) == true end)
-        if helpers.IS_WIN() then vim.uv.sleep(250) end
+        sleep(100); if not helpers.IS_LINUX() then sleep(250) end
       end,
     }
     ---@diagnostic disable-next-line: assign-type-mismatch
@@ -385,7 +394,7 @@ T["win"]["highlight"]["unchange when reuse win #2588"] = function()
   helpers.SKIP_IF_WIN() -- windows attr looks different
   local opts = {
     __no_abort = true,
-    __after_open = function() if helpers.IS_WIN() then vim.uv.sleep(250) end end,
+    __after_open = function() sleep(100); if not helpers.IS_LINUX() then sleep(250) end end,
     cwd_prompt = false,
   }
   helpers.FzfLua.files(child, opts)

@@ -102,7 +102,7 @@ function Previewer.base:setup_opts(opts)
   -- fzf 0.40 added 'zero' event for when there's no match
   -- clears the preview when there are no matching entries
   if utils.has(opts, "fzf", { 0, 40 }) then
-    table.insert(opts._fzf_cli_args, "--bind=" .. libuv.shellescape("zero:+" .. self:zero()))
+    table.insert(opts._fzf_cli_args, libuv.cli_raw_arg("--bind=", "zero:+" .. self:zero()))
   end
   return opts
 end
@@ -326,7 +326,7 @@ end
 function Previewer.base:cmdline(_)
   local act = shell.stringify_data(function(items, _, _)
     ---@type string?, string?, string?
-    local entry, query, idx = unpack(items, 1, 3)
+    local entry, idx, query = unpack(items, 1, 3)
     -- NOTE: see comment regarding {n} in `core.convert_exec_silent_actions`
     -- convert empty string to nil
     if not tonumber(idx) then entry = nil end
@@ -338,7 +338,7 @@ function Previewer.base:cmdline(_)
     -- save last entry even if we don't display
     self.last_entry = entry
     return ""
-  end, self.opts, "{} {q} {n}")
+  end, self.opts, "{} {n} {q}")
   return act
 end
 
@@ -1335,12 +1335,16 @@ function Previewer.buffer_or_file:set_cursor_hl(entry)
     ---@diagnostic disable-next-line: param-type-mismatch
     local reg = utils.vim_regex(regex, { silent = true })
     if reg then
-      if case_sensitive then
-        regex_start, regex_end = reg:match_line(buf, lnum - 1, col - 1)
-      else
-        local line = api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1] or ""
-        regex_start, regex_end = reg:match_str(line:sub(col):lower())
-      end
+      regex_start, regex_end = utils.npcall(function()
+        if case_sensitive then
+          ---@diagnostic disable-next-line: redundant-return-value
+          return reg:match_line(buf, lnum - 1, col - 1)
+        else
+          local line = api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1] or ""
+          ---@diagnostic disable-next-line: redundant-return-value
+          return reg:match_str(line:sub(col):lower())
+        end
+      end)
     end
     if regex_start and regex_end then
       extmark = api.nvim_buf_set_extmark(buf, self.ns_previewer, lnum - 1, regex_start + col - 1, {
@@ -1631,10 +1635,13 @@ function Previewer.quickfix:parse_entry(entry_str)
   local nr = entry_str:match("[(%d+)]")
   if not nr or tonumber(nr) <= 0 then return {} end
   local qf_list = self.opts.is_loclist and
+      ---@diagnostic disable-next-line: assign-type-mismatch
       fn.getloclist(self.win.src_winid, { all = "", nr = tonumber(nr) })
+      ---@diagnostic disable-next-line: assign-type-mismatch
       or fn.getqflist({ all = "", nr = tonumber(nr) })
   if utils.tbl_isempty(qf_list) or utils.tbl_isempty(qf_list.items) then return {} end
   local lines = {}
+      ---@diagnostic disable-next-line: param-type-mismatch
   for _, e in ipairs(qf_list.items) do
     table.insert(lines, string.format("%s|%d col %d|%s",
       path.HOME_to_tilde(path.relative_to(

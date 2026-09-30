@@ -530,20 +530,24 @@ M.ex_run = function(selected)
   local cmd = selected[1]
   vim.cmd("stopinsert")
   vim.fn.feedkeys(string.format(":%s", cmd), "nt")
-  return cmd
 end
 
 M.ex_run_cr = function(selected)
   if not selected[1] then return end
   local cmd = selected[1]
-  vim.cmd(cmd)
+  local keys = string.format("<Cmd>%s<CR>", cmd:gsub("<", "<lt>"))
+  keys = vim.api.nvim_replace_termcodes(keys, true, true, true)
+  vim.api.nvim_feedkeys(keys, 'nt', false)
   vim.fn.histadd("cmd", cmd)
 end
 
 M.exec_menu = function(selected)
   if not selected[1] then return end
-  local cmd = selected[1]
-  vim.cmd("emenu " .. cmd)
+  local menu = selected[1]
+  local k_cmd = vim.api.nvim_replace_termcodes("<Cmd>", true, false, true)
+  local cmd = vim.fn.json_encode("emenu " .. vim.fn.escape(menu, "\\ |"))
+  local keys = string.format("%sexecute %s\r", k_cmd, cmd)
+  vim.api.nvim_feedkeys(keys, 'nt', false)
 end
 
 
@@ -1337,7 +1341,8 @@ end
 
 M.undo = function(selected, _opts)
   if not selected[1] then return end
-  local seq = selected[1]:match("%d+")
+  local seq = utils.strip_ansi_coloring(selected[1]):match("%d+")
+  if not seq then return end
   vim.cmd("silent undo " .. tostring(seq))
   utils.info("Undo jump to %s.", seq == "0" and "origin" or "change #" .. tostring(seq))
 end
@@ -1349,6 +1354,7 @@ end
 M.serverlist_kill = function(sel)
   ---@diagnostic disable-next-line: redundant-parameter, call-non-callable
   vim.iter(sel):map(parse_entry):each(function(addr)
+    ---@cast addr string
     local ok, err = utils.rpcexec(addr, "nvim_exec2", "qa!", {})
     assert(ok
       or tostring(err):match("Invalid channel")

@@ -1158,10 +1158,8 @@ local restore_lastwin = function(winid, last_winid)
   then
     return
   end
-  utils.eventignore(function()
-    api.nvim_set_current_win(last_winid)
-    api.nvim_set_current_win(winid)
-  end)
+  api.nvim_set_current_win(last_winid)
+  api.nvim_set_current_win(winid)
 end
 
 ---@param buf? integer
@@ -1283,8 +1281,8 @@ function FzfWin.on_SIGWINCH(opts, event, cb)
   opts.__sigwinch_cb[event] = cb -- override duplicate keys
   if created then return true end
   opts._fzf_cli_args = opts._fzf_cli_args or {}
-  table.insert(opts._fzf_cli_args, "--bind="
-    .. libuv.shellescape("resize:+transform:" .. FzfLua.shell.stringify_data(function(args)
+  table.insert(opts._fzf_cli_args,
+    libuv.cli_raw_arg("--bind=", "resize:+transform:" .. FzfLua.shell.stringify_data(function(args)
       local events = vim.tbl_keys(vim.list_slice(opts.__sigwinch_cb))
       vim.list_extend(events, opts.__sigwinches or {})
       opts.__sigwinches = nil

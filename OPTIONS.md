@@ -1724,9 +1724,9 @@ Custom format function for symbol display.
 
 ##### lsp_symbols.symbol_style
 
-Type: `integer`, Default: `1`
+Type: `integer|false`, Default: `1`
 
-Display style for symbol icons, `1` for icon only, `2` for icon+name, `3` for icon+name(colored).
+Display style for symbol kinds, `1` for icon+kind, `2` for icon only, `3` for kind only.
 
 ##### lsp_symbols.symbol_icons
 
@@ -1994,6 +1994,12 @@ Undo tree.
 Type: `boolean`, Default: `true`
 
 Jump to the current undo position on picker open.
+
+##### undotree.tree_style
+
+Type: `string[]`, Default: `"tree"`
+
+Undo tree draw style, `tree` for the existing box-drawing layout or `graph` for the `:Undotree` ASCII graph layout.
 
 #### zoxide
 

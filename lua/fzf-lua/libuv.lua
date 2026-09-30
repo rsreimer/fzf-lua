@@ -812,6 +812,60 @@ M.shellescape = function(s, win_style)
   end
 end
 
+-- PowerShell escaping for the fzf launcher on Windows when the command line
+-- exceeds cmd.exe's 8191-char limit (see `fzf.raw_fzf`). A single-quoted
+-- PowerShell string treats every character literally except a single quote,
+-- which is escaped by doubling it (''), no caret/backslash/metachar handling
+-- needed (our internal `nvim -l` payloads are already base64-encoded).
+---@param s string
+---@return string
+M.ps_escape = function(s) return "'" .. s:gsub("'", "''") .. "'" end
+
+---@class fzf-lua.CliSegment
+---@field text string    -- raw (unescaped) text
+---@field escape boolean -- true = escape this text for the target shell
+
+-- One argv element is a list of segments (usually 1; 2 for a fused "flag=value"
+-- or "--bind=<value>" string where the flag prefix is literal and the value is
+-- escaped). This lets a single final pass escape only the value segments,
+-- per target shell, without double-escaping literal flag text.
+---@alias fzf-lua.CliElement fzf-lua.CliSegment[]
+
+-- Escape a list of CLI elements for the given shell, re-fusing each element's
+-- segments into a single string. "posix"/"cmd" reuse `shellescape` (cmd uses
+-- the caret/win_style variant), "powershell" uses `ps_escape`. Literal segments
+-- (`escape=false`) are emitted verbatim in all shells.
+---@param elements fzf-lua.CliElement[]
+---@param shell "posix"|"cmd"|"powershell"
+---@param win_style integer|string? forwarded to shellescape for "cmd"
+---@return string[]
+M.escape_cli = function(elements, shell, win_style)
+  local escapefn = shell == "powershell" and M.ps_escape
+    or function(s) return M.shellescape(s, shell == "cmd" and win_style or nil) end
+  local argv = {}
+  for _, elem in ipairs(elements) do
+    local buf = {}
+    for _, seg in ipairs(elem) do
+      table.insert(buf, seg.escape and escapefn(seg.text) or seg.text)
+    end
+    table.insert(argv, table.concat(buf))
+  end
+  return argv
+end
+
+-- Marker for `_fzf_cli_args` entries that carry a raw (unescaped) value
+-- alongside the escaped string form. `build_fzf_cli` consumes these to emit
+-- BOTH the legacy escaped string (for cmd/posix, byte-identical) and a raw
+-- CliElement segment list (used to rebuild the command for the PowerShell
+-- fallback when the cmd line exceeds 8191 chars). `prefix` is the literal,
+-- never-escaped flag text (e.g. "--bind=" or "--interactive --cmd ").
+---@param prefix string literal flag prefix (e.g. "--bind=")
+---@param value string raw (unescaped) value
+---@return table marker
+M.cli_raw_arg = function(prefix, value)
+  return { __raw_cli = true, prefix = prefix, value = value }
+end
+
 -- Windows fzf oddities, fzf's {q} will send escaped blackslahes,
 -- but only when the backslash prefixes another character which
 -- isn't a backslash, test with:
